@@ -1,4 +1,8 @@
-TOKEN = "5375611900:AAEgn-ZWpJPlZOUI6FeSFb8tHfOJsJSV_Ag" # TOKEN DEL BOT
+TOKEN = None # TOKEN DEL BOT
+
+with open('token.txt','r') as f:
+    TOKEN = f.read().strip()
+
 ID_OWNER = "245996916" # ID TELEGRAM PER RICEVERE NOTIFICA (ottienilo con t.me/JsonDumpBot)
 
 # https://docs.python-telegram-bot.org/en/stable/telegram.ext.handler.html
