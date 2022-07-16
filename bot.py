@@ -47,13 +47,11 @@ class Partecipante:
 
 
 class Partita:
-    def __init__(self, utente, utenteId)-> None:
+    def __init__(self, utente)-> None:
         self.whoCreated: str = utente
-        self.whoCreatedId: str = utenteId
         self.partecipanti: Dict[str,Partecipante] = {}
         self.isStarted: bool = False
         self.turno: int = 0
-        
 
     def getAllPartecipantsIDs(self) -> list[str]:
         return list(self.partecipanti.keys())
@@ -89,15 +87,13 @@ def crea_partita(update: Update, context: CallbackContext):
 
     if chat_id > 0:
         update.message.reply_text(f'Hey {utente}, non vorrai mica giocare da solo? Usa questo comando in un gruppo')
-        logging.info(f'{utente}, {idUtente} - Ha eseguito /crea_partita in chat privata')
         return
     
     if not f'{chat_id}' in partite:
-        partite[f'{chat_id}'] = Partita(utente, idUtente)
+        partite[f'{chat_id}'] = Partita(utente)
         storie[f'{chat_id}'] = '' 
         partite[f'{chat_id}'].partecipanti[f'{idUtente}'] = Partecipante(utente)
-        update.message.reply_text(f'{utente} ha creato una partita. Entra con /join_ows_game')
-        logging.info(f'{utente}, {idUtente} - Ha eseguito /crea_partita nel gruppo "{update.message.chat.title}"')
+        update.message.reply_text(f'{utente} ha creato una partita')
     else: 
         update.message.reply_text(f'Partita già creata. Entra con /join_ows_game')
 
@@ -139,15 +135,8 @@ def avvia_partita(update: Update, context: CallbackContext):
         update.message.reply_text(f'Non è stata creata nessuna partita. Creane una con /crea_partita')
         return
 
-    if not idUtente == partite[f'{chat_id}'].whoCreatedId:
-        update.message.reply_text(f"Non hai creato tu la partita. Deve avviare {partite[f'{chat_id}'].whoCreated}")
-
-
     partite[f'{chat_id}'].isStarted = True
-
-    logging.info(f'{utente}, {idUtente} - Ha eseguito /start in chat privata')
-
-
+    
     ordinePartecipanti = ''
 
     for p in partite[f'{chat_id}'].getAllPartecipantsIDs():
