@@ -7,6 +7,7 @@ ID_OWNER = "245996916" # ID TELEGRAM PER RICEVERE NOTIFICA (ottienilo con t.me/J
 
 # https://docs.python-telegram-bot.org/en/stable/telegram.ext.handler.html
 
+from queue import Empty
 from time import sleep
 
 from telegram.ext import (
@@ -52,8 +53,13 @@ class Partita:
         self.isStarted: bool = False
         self.turno: int = 0
 
-    def getAllPartecipantsIDs(self):
+    def getAllPartecipantsIDs(self) -> list[str]:
         return list(self.partecipanti.keys())
+
+    def prossimoTurno(self) -> Partecipante:
+        for partecipante in self.getAllPartecipantsIDs():
+            if not self.partecipanti[partecipante].hasWritten:
+                return self.partecipanti[partecipante]
 
 
 #        group_id: Partita()
@@ -68,14 +74,8 @@ def start(update: Update, context: CallbackContext): # /start
     idUtente = update.message.from_user.id
     
     logging.info(f'{utente}, {idUtente} - Ha eseguito /start')
-    update.message.reply_text(f'Benvenuto nel bot "One Word Story"')
+    update.message.reply_text(f'Benvenuto nel bot "One Word Story". Per giocare aggiungimi in un gruppo COME AMMINISTRATORE e fai /crea_partita')
 
-def help(update: Update, context: CallbackContext): # /help
-    utente = update.message.from_user.username if update.message.from_user.username != None else update.message.from_user.full_name
-    idUtente = update.message.from_user.id
-    
-    logging.info(f'{utente}, {idUtente} - Ha eseguito /help')
-    update.message.reply_text('Aiuto')
 
 def crea_partita(update: Update, context: CallbackContext):
     global partite
@@ -162,7 +162,7 @@ def onMessageInGroup(update: Update, context: CallbackContext):
     partecipante = partite[f'{chat_id}'].partecipanti[str(idUtente)]
 
     if not partecipante.numero == partite[f'{chat_id}'].turno:
-        messaggioDaCancellare = update.message.reply_text(f'{utente} non è il tuo turno')
+        messaggioDaCancellare = update.message.reply_text(f"{utente} non è il tuo turno. Tocca a {partite[f'{chat_id}'].prossimoTurno().nomeUtente}")
         context.bot.delete_message(chat_id,messaggio_id)
         sleep(3)
         context.bot.delete_message(chat_id,messaggioDaCancellare.message_id)
@@ -172,12 +172,13 @@ def onMessageInGroup(update: Update, context: CallbackContext):
     # - ✔ Non deve contenere spazi
     # - Non deve contenere i simboli: _-+
 
-    if (' ' in messaggio):
+    if (' ' in messaggio or '_' in messaggio or '-' in messaggio or '+' in messaggio):
         messaggioDaCancellare = update.message.reply_text(f'{utente} devi scrivere una parola sola :P\nil gioco si chiama "ONE WORD stories" per un motivo.')
         context.bot.delete_message(chat_id,messaggio_id)
         sleep(3)
         context.bot.delete_message(chat_id,messaggioDaCancellare.message_id)
         return
+
 
     
     if partecipante.hasWritten:
@@ -198,7 +199,6 @@ def onMessageInGroup(update: Update, context: CallbackContext):
         messaggioDaCancellare = update.message.reply_text(f'Tutti i partecipanti hanno scritto una parola. Ora potete riscrivere')
         sleep(3)
         context.bot.delete_message(chat_id,messaggioDaCancellare.message_id)
-
 
         partite[f'{chat_id}'].turno = 0
 
@@ -230,13 +230,17 @@ def end_game(update: Update, context: CallbackContext):
     messaggio = update.message.text
     messaggio_id = update.message.message_id
     
-    if not partite[f'{chat_id}'].isStarted:
-        update.message.reply_text("Devi prima avviare una partita.")
+    if f'{chat_id}' in partite:
+        update.message.reply_text("Devi prima creare una partita.")
         return
 
-    update.message.reply_text("Termino la partita. Ecco la vostra storia")
-    update.message.reply_text(capwords(storie[f'{chat_id}'],'. '))
-    
+    if (storie[f'{chat_id}'] != ""):
+        update.message.reply_text("Termino la partita. Ecco la vostra storia:")
+        update.message.reply_text(capwords(storie[f'{chat_id}'],'. '))
+    else:
+        update.message.reply_text("Termino la partita.")
+
+
     # Azzero qualsiasi cosa possibile per cancellare la partita
     partite.pop(f'{chat_id}',None)
     storie.pop(f'{chat_id}',None)
@@ -267,7 +271,6 @@ def main():
     # Ci sono vari handler che trovi al link alla riga 4
     
     dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("help", help))
 
     dp.add_handler(CommandHandler("crea_partita", crea_partita))
     dp.add_handler(CommandHandler("join_ows_game", join_ows_game))
