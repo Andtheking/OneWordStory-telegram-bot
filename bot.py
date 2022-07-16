@@ -227,9 +227,6 @@ def all_partecipants_have_written(partita: Partita) -> bool:
 
     return True
 
-    
-
-
 
 def end_game(update: Update, context: CallbackContext):
     
