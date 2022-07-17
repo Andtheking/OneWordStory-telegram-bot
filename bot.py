@@ -47,8 +47,9 @@ class Partecipante:
 
 
 class Partita:
-    def __init__(self, utente)-> None:
+    def __init__(self, utente, userId)-> None:
         self.whoCreated: str = utente
+        self.whoCreatedId: str = userId
         self.partecipanti: Dict[str,Partecipante] = {}
         self.isStarted: bool = False
         self.turno: int = 0
@@ -90,10 +91,10 @@ def crea_partita(update: Update, context: CallbackContext):
         return
     
     if not f'{chat_id}' in partite:
-        partite[f'{chat_id}'] = Partita(utente)
+        partite[f'{chat_id}'] = Partita(utente, idUtente)
         storie[f'{chat_id}'] = '' 
         partite[f'{chat_id}'].partecipanti[f'{idUtente}'] = Partecipante(utente)
-        update.message.reply_text(f'{utente} ha creato una partita')
+        update.message.reply_text(f'{utente} ha creato una partita. Entra con /join_ows_game')
     else: 
         update.message.reply_text(f'Partita già creata. Entra con /join_ows_game')
 
@@ -135,6 +136,15 @@ def avvia_partita(update: Update, context: CallbackContext):
         update.message.reply_text(f'Non è stata creata nessuna partita. Creane una con /crea_partita')
         return
 
+    if not idUtente == partite[f'{chat_id}'].whoCreatedId:
+        update.message.reply_text("Non hai creato tu la partita")
+        return
+
+    if partite[f'{chat_id}'].isStarted:
+        update.message.reply_text("Partita già avviata")
+        return
+
+
     partite[f'{chat_id}'].isStarted = True
     
     ordinePartecipanti = ''
@@ -144,6 +154,14 @@ def avvia_partita(update: Update, context: CallbackContext):
 
 
     update.message.reply_text(f"{utente} ha avviato la partita. Da ora cancellerò tutti i messaggi dei partecipanti che:\n - Non contengono una parola sola;\n - Hanno già scritto una parola.\n\nL'ordine dei turni è:\n"+ordinePartecipanti)
+
+
+# To-Do list:
+#   Fixare errore dei messaggi modificati
+#   Fixare che chiunque può terminare il game
+#   Aggiungere possibilità di quittare un game
+#   Salvare le partite quando il bot si spegne
+#   Controllare bene altre cose
 
 def onMessageInGroup(update: Update, context: CallbackContext):
     global partite
@@ -227,7 +245,7 @@ def end_game(update: Update, context: CallbackContext):
     messaggio = update.message.text
     messaggio_id = update.message.message_id
     
-    if f'{chat_id}' in partite:
+    if not f'{chat_id}' in partite:
         update.message.reply_text("Devi prima creare una partita.")
         return
 
@@ -273,10 +291,12 @@ def main():
     dp.add_handler(CommandHandler("join_ows_game", join_ows_game))
     dp.add_handler(CommandHandler("avvia_partita", avvia_partita))
 
-    dp.add_handler(MessageHandler(Filters.chat_type.group & ~Filters.command,onMessageInGroup,run_async=True))
+    dp.add_handler(MessageHandler(Filters.chat_type.groups & ~Filters.command,onMessageInGroup,run_async=True))
 
     dp.add_handler(CommandHandler("end_game",end_game))
 
+
+    
     # Questo per ricevere una notifica quando il bot è online; utile all'inizio, dopo disattivalo sennò impazzisci per le notifiche
     requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage?chat_id={ID_OWNER}&text=Bot online")
     
