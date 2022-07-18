@@ -123,8 +123,7 @@ def crea_partita(update: Update, context: CallbackContext):
     else:
         update.message.reply_text(
             f'Partita già creata. Entra con /join_ows_game')
-    with lock:
-        salvaVariabile(partite,FILE_SALVATAGGIO_DATI)
+    
 
 
 def join_ows_game(update: Update, context: CallbackContext):
@@ -156,10 +155,6 @@ def join_ows_game(update: Update, context: CallbackContext):
 
     update.message.reply_text(f'{utente} è entrato nella partita')
 
-    with lock:
-        salvaVariabile(partite,FILE_SALVATAGGIO_DATI)
-
-
 def avvia_partita(update: Update, context: CallbackContext):
     global partite
 
@@ -190,24 +185,20 @@ def avvia_partita(update: Update, context: CallbackContext):
     update.message.reply_text(
         f"{utente} ha avviato la partita. Da ora cancellerò tutti i messaggi dei partecipanti che:\n - Non contengono una parola sola;\n - Hanno già scritto una parola.\n\nL'ordine dei turni è:\n"+ordinePartecipanti)
 
-    with lock:
-        salvaVariabile(partite,FILE_SALVATAGGIO_DATI)
-
-
 # To-Do list:
 #   ✔ Fixare errore dei messaggi modificati
 #   ✔ Fixare il numeraggio dei partecipanti
 #   ✔ Fixare che chiunque può terminare il game
 #   ✔ Aggiungere possibilità di quittare un game
-#   ... Salvare le partite quando il bot si spegne
-#   Controllare bene altre cose
+#   NO Salvare le partite quando il bot si spegne
+#   ... Controllare bene altre cose
 
 def onMessageInGroup(update: Update, context: CallbackContext):
     global partite
 
     chat_id = update.message.chat.id if update.message != None else update.edited_message.chat.id
     utente = (update.message.from_user.username if update.message.from_user.username != None else update.message.from_user.full_name) if update.message != None else (
-        update.edited_message.from_user.username if update.edited_message.from_user.username != None else update.edited_message.from_user.full_name)
+    update.edited_message.from_user.username if update.edited_message.from_user.username != None else update.edited_message.from_user.full_name)
     idUtente = update.message.from_user.id if update.message != None else update.edited_message.from_user.id
     messaggio_id = update.message.message_id if update.message != None else update.edited_message
 
@@ -273,10 +264,6 @@ def onMessageInGroup(update: Update, context: CallbackContext):
             f'Tutti i partecipanti hanno scritto una parola. Ora potete riscrivere')
         sleep(3)
         context.bot.delete_message(chat_id, messaggioDaCancellare.message_id)
-    
-    with lock:
-        salvaVariabile(partite,FILE_SALVATAGGIO_DATI)
-
 
 def all_partecipants_have_written(partita: Partita) -> bool:
 
@@ -285,7 +272,6 @@ def all_partecipants_have_written(partita: Partita) -> bool:
             return False
 
     return True
-
 
 def end_game(update: Update, context: CallbackContext):
 
@@ -316,9 +302,6 @@ def end_game(update: Update, context: CallbackContext):
     partite.pop(f'{chat_id}', None)
     storie.pop(f'{chat_id}', None)
 
-    with lock:
-        salvaVariabile(partite,FILE_SALVATAGGIO_DATI)
-
 
 def quit_ows_game(update: Update, context: CallbackContext):
     global partite
@@ -340,9 +323,6 @@ def quit_ows_game(update: Update, context: CallbackContext):
 
     partite[f'{chat_id}'].partecipanti.pop(str(idUtente))
     update.message.reply_text(f"Sei uscito dalla partita con successo.\n\nPartecipanti restanti:\n{partite[f'{chat_id}'].getAllPartecipants(True)}")
-
-    with lock:
-        salvaVariabile(partite,FILE_SALVATAGGIO_DATI)
 
 
 # Segnala quando il bot crasha, con motivo del crash
@@ -391,8 +371,9 @@ def main():
     dp.add_handler(CommandHandler("quit_ows_game", quit_ows_game))
     # Questo per ricevere una notifica quando il bot è online; utile all'inizio, dopo disattivalo sennò impazzisci per le notifiche
     
+    global partite
     if os.stat(FILE_SALVATAGGIO_DATI).st_size > 0:
-        caricaVariabile(FILE_SALVATAGGIO_DATI)
+        partite = caricaVariabile(FILE_SALVATAGGIO_DATI)
 
     requests.post(
         f"https://api.telegram.org/bot{TOKEN}/sendMessage?chat_id={ID_OWNER}&text=Bot online")
