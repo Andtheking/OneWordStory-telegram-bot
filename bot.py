@@ -1,6 +1,4 @@
-from concurrent.futures import thread
-import logging
-import os  # Per loggare (non si usa "print()" ma logger.info())
+import logging # Per loggare (non si usa "print()" ma logger.info())
 import requests  # Per mandare la richiesta di invio messaggio quando online
 import pickle # Per salvare Dictionary in un file si usa con pickle.dump per salvare e pickle.load
 import threading
@@ -20,15 +18,12 @@ from telegram.ext import (
     MessageHandler,  # Per i messaggi
     # Per i messaggi (i filtri tipo per dire: Agisci quando ricevi immagini, file, audio, tutto e cose così)
     Filters,
-    ConversationHandler,  # Per più comandi concatenati
 )
 
 
 TOKEN = None  # TOKEN DEL BOT
 with open('token.txt', 'r') as f:
     TOKEN = f.read().strip()
-
-FILE_SALVATAGGIO_DATI = 'partite.dictionary'
 
 # ID TELEGRAM PER RICEVERE NOTIFICA (ottienilo con t.me/JsonDumpBot)
 ID_OWNER = "245996916"
@@ -371,10 +366,6 @@ def main():
     dp.add_handler(CommandHandler("quit_ows_game", quit_ows_game))
     # Questo per ricevere una notifica quando il bot è online; utile all'inizio, dopo disattivalo sennò impazzisci per le notifiche
     
-    global partite
-    if os.stat(FILE_SALVATAGGIO_DATI).st_size > 0:
-        partite = caricaVariabile(FILE_SALVATAGGIO_DATI)
-
     requests.post(
         f"https://api.telegram.org/bot{TOKEN}/sendMessage?chat_id={ID_OWNER}&text=Bot online")
 
