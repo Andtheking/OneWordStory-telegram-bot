@@ -215,7 +215,7 @@ def onMessageInGroup(update: Update, context: CallbackContext):
         return
 
     # Se l'utente non è in partita, non fare nulla
-    if not str(idUtente) in partite[f'{chat_id}'].getAllPartecipantsIDs:
+    if not str(idUtente) in partite[f'{chat_id}'].getAllPartecipantsIDs():
         return
     
     # Se il messaggio è modificato, non aggiornare la storia
