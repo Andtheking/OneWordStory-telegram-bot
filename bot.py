@@ -1,3 +1,8 @@
+# TO-DO
+# - Comando per disabilitare la cancellazione dei messaggi durante il game
+# - Se il bot non ha il permesso per cancellare i messaggi lo dice e non crasha
+
+
 import logging # Per loggare (non si usa "print()" ma logger.info())
 import requests  # Per mandare la richiesta di invio messaggio quando online
 
