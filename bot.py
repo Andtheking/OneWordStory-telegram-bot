@@ -1,12 +1,13 @@
 # TO-DO
-# - Comando per disabilitare la cancellazione dei messaggi durante il game
+# - ✔ Comando /wakeUp: Tagga a chi tocca (in caso è afk) 
+# - ✔ Skip di un turno a votazione, in caso qualcuno sia afk
 # - Se il bot non ha il permesso per cancellare i messaggi lo dice e non crasha
-# - Skip di un turno a votazione, in caso qualcuno sia afk
-# - Tagga tutti quando inizia un game
+# - Comando per disabilitare la cancellazione dei messaggi durante il game
+# - ✔ Tagga tutti quando inizia un game
 # - Non deve cancellare gli sticker, le gif e cose simili
-# - Comando /wakeUp: Tagga a chi tocca (in caso è afk)
-# - Attacca i punti alle parole della storia finale
+# - Attacca i punti alle parole della storia finale    
 
+from ast import Call
 import logging # Per loggare (non si usa "print()" ma logger.info())
 import requests  # Per mandare la richiesta di invio messaggio quando online
 
@@ -15,9 +16,11 @@ from typing import Dict
 from time import sleep
 
 from telegram import (
+    Bot,
     Update, # È il tipo che usiamo nelle funzioni
     Message, # Il tipo per i messaggi
 )
+
 from telegram.ext import (
     Updater, # Per il bot
     CommandHandler, # Per i comandi
@@ -52,6 +55,7 @@ class Partecipante:
         self.nomeUtente = username
         self.idUtente = id
         self.hasWritten = False
+        self.voteSkip = False
 
 
 # Rappresenta una partita:
@@ -70,23 +74,23 @@ class Partita:
         self.partecipanti: Dict[str, Partecipante] = {}
         self.isStarted: bool = False
         self.MessaggioListaPartecipanti: Message = mess
+        self.MessaggioVoteSkip: Message
+
 
     def getAllPartecipantsIDs(self) -> list[str]:
         return list(self.partecipanti.keys())
 
-    def getAllPartecipants(self, stringa: bool = False) -> list[str] | str:
-        lista = []
+    def getAllPartecipants(self) -> list[Partecipante]:
+        return list(self.partecipanti.values())
+    
+    def getNumberOfPlayers(self) -> int:
+        return len(list(self.getAllPartecipantsIDs()))
 
-        for partecipante in self.getAllPartecipantsIDs():
-            lista.append(self.partecipanti[partecipante].nomeUtente)
-
-        if not stringa:
-            return lista
-
+    def getAllPartecipantsString(self) -> str:
         listaStringa = ''
         
-        for partecipante in lista:
-            listaStringa += partecipante + '\n'
+        for partecipante in self.getAllPartecipants():
+            listaStringa += '- ' + partecipante.nomeUtente + '\n'
         
         return listaStringa
 
@@ -94,6 +98,14 @@ class Partita:
         for partecipante in self.getAllPartecipantsIDs():
             if not self.partecipanti[partecipante].hasWritten:
                 return self.partecipanti[partecipante]
+
+    def getVotes(self):
+        voti: int = 0
+        for partecipante in self.getAllPartecipants():
+            if partecipante.voteSkip:
+                voti += 1
+        
+        return voti
 
 
 #        group_id: Partita
@@ -103,7 +115,7 @@ partite: Dict[str, Partita] = {}
 storie: Dict[str, str] = {}
 
 def start(update: Update, context: CallbackContext):  # /start
-    utente = update.message.from_user.username if update.message.from_user.username != None else update.message.from_user.full_name
+    utente = ('@' + update.message.from_user.username) if update.message.from_user.username != None else update.message.from_user.full_name
     idUtente = update.message.from_user.id
 
     logging.info(f'{utente}, {idUtente} - Ha eseguito /start')
@@ -115,7 +127,7 @@ def crea_partita(update: Update, context: CallbackContext):
     global partite
 
     # Assegno tutte le variabili per comodità
-    utente = update.message.from_user.username if update.message.from_user.username != None else update.message.from_user.full_name
+    utente = ('@' + update.message.from_user.username) if update.message.from_user.username != None else update.message.from_user.full_name
     idUtente = update.message.from_user.id
 
     chat_id = update.message.chat.id
@@ -146,7 +158,7 @@ def join_ows_game(update: Update, context: CallbackContext):
 
     # Assegno tutte le variabili per comodità
     # "utente" fa il controllo se l'username è presente altrimenti usa il nome
-    utente = update.message.from_user.username if update.message.from_user.username != None else update.message.from_user.full_name
+    utente = ('@' + update.message.from_user.username) if update.message.from_user.username != None else update.message.from_user.full_name
     idUtente = update.message.from_user.id
     chat_id = update.message.chat.id
 
@@ -177,7 +189,7 @@ def avvia_partita(update: Update, context: CallbackContext):
     global partite
 
     # Solite variabili per comodità
-    utente = update.message.from_user.username if update.message.from_user.username != None else update.message.from_user.full_name
+    utente = ('@' + update.message.from_user.username) if update.message.from_user.username != None else update.message.from_user.full_name
     idUtente = update.message.from_user.id
     chat_id = update.message.chat.id
 
@@ -201,7 +213,7 @@ def avvia_partita(update: Update, context: CallbackContext):
     partite[f'{chat_id}'].isStarted = True 
 
     update.message.reply_text(
-        f"{utente} ha avviato la partita. Da ora cancellerò tutti i messaggi dei partecipanti che:\n - Non contengono una parola sola;\n - Hanno già scritto una parola.\n\nL'ordine dei turni è:\n"+partite[f'{chat_id}'].getAllPartecipants(True))
+        f"{utente} ha avviato la partita. Da ora cancellerò tutti i messaggi dei partecipanti che:\n - Non contengono una parola sola;\n - Hanno già scritto una parola.\n\nL'ordine dei turni è:\n"+partite[f'{chat_id}'].getAllPartecipantsString())
 
 
 # Questo metodo è avviato asincrono per poter usare sleep per cancellare i messaggi dopo tot secondi
@@ -214,7 +226,7 @@ def onMessageInGroup(update: Update, context: CallbackContext):
     # un messaggio modificato e non un messaggio nuovo.
     # (Se il messaggio è modificato l'update sarà edited_message e non message)
     chat_id = update.message.chat.id if update.message != None else update.edited_message.chat.id
-    utente = (update.message.from_user.username if update.message.from_user.username != None else update.message.from_user.full_name) if update.message != None else (
+    utente = (('@' + update.message.from_user.username) if update.message.from_user.username != None else update.message.from_user.full_name) if update.message != None else (
     update.edited_message.from_user.username if update.edited_message.from_user.username != None else update.edited_message.from_user.full_name)
     idUtente = update.message.from_user.id if update.message != None else update.edited_message.from_user.id
     messaggio_id = update.message.message_id if update.message != None else update.edited_message
@@ -284,7 +296,7 @@ def onMessageInGroup(update: Update, context: CallbackContext):
                                             # (avrei potuto mettere la stringa dentro il dictionary partite
                                             #  ma ora non ho voglia di cambiare tutto)
     
-    partecipante.hasWritten = not partecipante.hasWritten # Inverto la sua proprietà hasWritten (quindi diventa true)
+    partecipante.hasWritten = True # True, ha scritto
 
     # Se hanno scritto tutti, metti a tutti "hasWritten = false"
     if all_partecipants_have_written(partite[f'{chat_id}']):
@@ -310,7 +322,7 @@ def end_game(update: Update, context: CallbackContext):
     global partite
 
     # Solito copia incolla
-    utente = update.message.from_user.username if update.message.from_user.username != None else update.message.from_user.full_name
+    utente = ('@' + update.message.from_user.username) if update.message.from_user.username != None else update.message.from_user.full_name
     idUtente = update.message.from_user.id
     chat_id = update.message.chat.id
     messaggio = update.message.text
@@ -343,7 +355,7 @@ def quit_ows_game(update: Update, context: CallbackContext):
     global partite
 
     # Solito copia incolla
-    utente = update.message.from_user.username if update.message.from_user.username != None else update.message.from_user.full_name
+    utente = ('@' + update.message.from_user.username) if update.message.from_user.username != None else update.message.from_user.full_name
     idUtente = update.message.from_user.id
     chat_id = update.message.chat.id
     messaggio = update.message.text
@@ -362,7 +374,68 @@ def quit_ows_game(update: Update, context: CallbackContext):
 
     # Se passi tutti i controlli togli l'utente dai partecipanti e ristampa la lista
     partite[f'{chat_id}'].partecipanti.pop(str(idUtente))
-    update.message.reply_text(f"Sei uscito dalla partita con successo.\n\nPartecipanti restanti:\n{partite[f'{chat_id}'].getAllPartecipants(True)}")
+    mess = update.message.reply_text(f"Sei uscito dalla partita con successo.\n\nPartecipanti restanti:\n{partite[f'{chat_id}'].getAllPartecipantsString()}")
+    
+    # Nuova lista da aggiornare se qualcuno joina
+    partite[f'{chat_id}'].MessaggioListaPartecipanti = mess
+
+def skip_turn(update: Update, context: CallbackContext):
+    global partite
+
+    # Solito copia incolla
+    utente = ('@' + update.message.from_user.username) if update.message.from_user.username != None else update.message.from_user.full_name
+    idUtente = update.message.from_user.id
+    chat_id = update.message.chat.id
+    messaggio = update.message.text
+    messaggio_id = update.message.message_id
+
+    # Se la partita non esiste
+    if not f'{chat_id}' in partite:
+        update.message.reply_text("Devi prima partecipare ad una partita.")
+        return
+
+    # Se l'utente non partecipa alla partita non può skippare
+    if not str(idUtente) in partite[f'{chat_id}'].partecipanti:
+        update.message.reply_text(f'Non puoi votare, non sei in partita!')
+        return
+
+    
+    if partite[f'{chat_id}'].getVotes() == 0:
+        mess = update.message.reply_text(f'{utente} ha avviato la votazione per skippare il turno di {partite[f"{chat_id}"].prossimoTurno().nomeUtente}.\n{partite[f"{chat_id}"].getVotes()}/{partite[f"{chat_id}"].getNumberOfPlayers()}')
+        partite[f'{chat_id}'].MessaggioVoteSkip = mess
+    
+    
+    partite[f'{chat_id}'].partecipanti[f'{idUtente}'].voteSkip = True
+    context.bot.edit_message_text(chat_id = chat_id, message_id = partite[f'{chat_id}'].MessaggioVoteSkip.message_id, text = f"{partite[f'{chat_id}'].MessaggioVoteSkip.text[0:partite[f'{chat_id}'].MessaggioVoteSkip.text.rfind('.')+1]}\n{partite[f'{chat_id}'].getVotes()}/{partite[f'{chat_id}'].getNumberOfPlayers() - 1}")
+
+    if partite[f'{chat_id}'].getVotes() == partite[f'{chat_id}'].getNumberOfPlayers() - 1:
+        update.message.reply_text(f'Ok, skippo il turno')
+        partite[f'{chat_id}'].partecipanti[f"{partite[f'{chat_id}'].prossimoTurno().idUtente}"].hasWritten = True
+
+
+def wakeUp(update: Update, context: CallbackContext):
+    global partite
+
+    # Solito copia incolla
+    utente = ('@' + update.message.from_user.username) if update.message.from_user.username != None else update.message.from_user.full_name
+    idUtente = update.message.from_user.id
+    chat_id = update.message.chat.id
+    messaggio = update.message.text
+    messaggio_id = update.message.message_id
+
+    # Se la partita non esiste
+    if not f'{chat_id}' in partite:
+        update.message.reply_text("Devi prima partecipare ad una partita.")
+        return
+
+    # Se la partita è avviata
+    if not partite[f'{chat_id}'].isStarted:
+        update.message.reply_text("Partita non avviata")
+        return
+    
+    update.message.reply_text(f"Sveglia {partite[f'{chat_id}'].prossimoTurno().nomeUtente}, tocca a te!")
+
+    
 
 # Segnala quando il bot crasha, con motivo del crash
 def error(update: Update, context: CallbackContext):
@@ -392,9 +465,16 @@ def main():
     dp.add_handler(CommandHandler("avvia_partita", avvia_partita))
     dp.add_handler(CommandHandler("end_game", end_game))
     dp.add_handler(CommandHandler("quit_ows_game", quit_ows_game))
+    dp.add_handler(CommandHandler("skip_turn",skip_turn))
+    dp.add_handler(CommandHandler("wakeUp",wakeUp))
 
-    dp.add_handler(MessageHandler(Filters.chat_type.groups & ~
-                   Filters.command, onMessageInGroup, run_async=True)) # Legge i messaggi dei gruppi e supergruppi ma non i comandi, per permettere /end_game e /quit_ows_game
+    # Legge i messaggi dei gruppi e supergruppi ma non i comandi, per permettere /end_game e /quit_ows_game
+    dp.add_handler( 
+        MessageHandler(
+            Filters.chat_type.groups & 
+            Filters.text &
+            ~Filters.command, onMessageInGroup, run_async=True) # async perché c'è sleep per aspettare i messaggi
+            ) 
 
     
     # Questo per ricevere una notifica quando il bot è online; utile all'inizio, dopo disattivalo sennò impazzisci per le notifiche
