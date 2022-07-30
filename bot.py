@@ -1,7 +1,11 @@
 # TO-DO
 # - Comando per disabilitare la cancellazione dei messaggi durante il game
 # - Se il bot non ha il permesso per cancellare i messaggi lo dice e non crasha
-
+# - Skip di un turno a votazione, in caso qualcuno sia afk
+# - Tagga tutti quando inizia un game
+# - Non deve cancellare gli sticker, le gif e cose simili
+# - Comando /wakeUp: Tagga a chi tocca (in caso è afk)
+# - Attacca i punti alle parole della storia finale
 
 import logging # Per loggare (non si usa "print()" ma logger.info())
 import requests  # Per mandare la richiesta di invio messaggio quando online
