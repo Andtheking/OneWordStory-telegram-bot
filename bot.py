@@ -1,10 +1,11 @@
 # TO-DO
 # - ✔ Comando /wakeUp: Tagga a chi tocca (in caso è afk) 
 # - ✔ Skip di un turno a votazione, in caso qualcuno sia afk
-# - Se il bot non ha il permesso per cancellare i messaggi lo dice e non crasha
-# - Comando per disabilitare la cancellazione dei messaggi durante il game
+# - ✔ Aggiungere #storie ai messaggi con le storie per trovarli più facilmente
+# - ✔ Se il bot non ha il permesso per cancellare i messaggi lo dice e non crasha
+# - X Comando per disabilitare la cancellazione dei messaggi durante il game (X: Se non vuoi che cancella, non metterlo admin)
 # - ✔ Tagga tutti quando inizia un game
-# - Non deve cancellare gli sticker, le gif e cose simili
+# - ✔ Non deve cancellare gli sticker, le gif e cose simili
 # - Attacca i punti alle parole della storia finale    
 
 from ast import Call
@@ -20,6 +21,7 @@ from telegram import (
     Update, # È il tipo che usiamo nelle funzioni
     Message, # Il tipo per i messaggi
 )
+import telegram
 
 from telegram.ext import (
     Updater, # Per il bot
@@ -142,6 +144,10 @@ def crea_partita(update: Update, context: CallbackContext):
     if not f'{chat_id}' in partite:
         mess = update.message.reply_text(
             f'{utente} ha creato una partita. Entra con /join_ows_game.\n\nPartecipanti:\n- {utente}')
+
+        if not context.bot.getChatMember(chat_id,context.bot.id).can_delete_messages:
+            update.message.reply_text(f'Il bot non ha i permessi per cancellare i messaggi, si può giocare comunque, ma consiglio di darglieli.')
+
         partite[f'{chat_id}'] = Partita(utente, idUtente, mess=mess) # Crea la partita con l'utente leader (chi l'ha creata)
         storie[f'{chat_id}'] = '' # Inizializzo la variabile storie per la chat a cui andrò a concatenare le varie parole
         partite[f'{chat_id}'].partecipanti[f'{idUtente}'] = Partecipante(
@@ -212,9 +218,12 @@ def avvia_partita(update: Update, context: CallbackContext):
     # Se tutti i controlli sono andati a buon fine, avvia la partita
     partite[f'{chat_id}'].isStarted = True 
 
-    update.message.reply_text(
-        f"{utente} ha avviato la partita. Da ora cancellerò tutti i messaggi dei partecipanti che:\n - Non contengono una parola sola;\n - Hanno già scritto una parola.\n\nL'ordine dei turni è:\n"+partite[f'{chat_id}'].getAllPartecipantsString())
-
+    if context.bot.getChatMember(chat_id,context.bot.id).can_delete_messages:
+        update.message.reply_text(
+            f"{utente} ha avviato la partita. Prenderò una parola a testa da ognuno di voi in ordine, per poi comporre una storia da esse, inoltre da ora cancellerò tutti i messaggi dei partecipanti che:\n - Non contengono una parola sola;\n - Hanno già scritto una parola.\n\nMetti * o / all\'inizio di un messaggio per non farlo cancellare dal bot\n\nL'ordine dei turni è:\n"+partite[f'{chat_id}'].getAllPartecipantsString())
+    else:
+        update.message.reply_text(
+            f"{utente} ha avviato la partita. Prenderò una parola a testa da ognuno di voi in ordine, per poi comporre una storia da esse.\n\nL'ordine dei turni è:\n"+partite[f'{chat_id}'].getAllPartecipantsString())
 
 # Questo metodo è avviato asincrono per poter usare sleep per cancellare i messaggi dopo tot secondi
 def onMessageInGroup(update: Update, context: CallbackContext):
@@ -227,7 +236,7 @@ def onMessageInGroup(update: Update, context: CallbackContext):
     # (Se il messaggio è modificato l'update sarà edited_message e non message)
     chat_id = update.message.chat.id if update.message != None else update.edited_message.chat.id
     utente = (('@' + update.message.from_user.username) if update.message.from_user.username != None else update.message.from_user.full_name) if update.message != None else (
-    update.edited_message.from_user.username if update.edited_message.from_user.username != None else update.edited_message.from_user.full_name)
+        update.edited_message.from_user.username if update.edited_message.from_user.username != None else update.edited_message.from_user.full_name)
     idUtente = update.message.from_user.id if update.message != None else update.edited_message.from_user.id
     messaggio_id = update.message.message_id if update.message != None else update.edited_message
 
@@ -239,23 +248,29 @@ def onMessageInGroup(update: Update, context: CallbackContext):
     if not str(idUtente) in partite[f'{chat_id}'].getAllPartecipantsIDs():
         return
     
+    
     # Se il messaggio è modificato, non aggiornare la storia
     if update.edited_message != None:
         update.edited_message.reply_text(
             f'Hey {utente}, non puoi modificare un messaggio! La tua parola rimarrà: {storie[f"{chat_id}"].split(" ")[-2]}')
         return
 
-
     messaggio = update.message.text 
 
+    # Caratteri per far scrivere agli utenti senza far considerare i messaggi dal bot
+    if messaggio[0:1] == '/' or messaggio[0:1] == '*':
+        return
     
     # Se non è il turno dell'utente avvisa e cancella il messaggio
     if not idUtente == partite[f'{chat_id}'].prossimoTurno().idUtente:
         messaggioDaCancellare = update.message.reply_text(
             f"{utente}, non è il tuo turno. Tocca a {partite[f'{chat_id}'].prossimoTurno().nomeUtente}")
-        context.bot.delete_message(chat_id, messaggio_id)
-        sleep(3)
-        context.bot.delete_message(chat_id, messaggioDaCancellare.message_id)
+        
+        # Controllo che il bot possa cancellare i messaggi
+        if context.bot.getChatMember(chat_id,context.bot.id).can_delete_messages:
+            context.bot.delete_message(chat_id, messaggio_id)
+            sleep(3)
+            context.bot.delete_message(chat_id, messaggioDaCancellare.message_id)
         return
     
     
@@ -264,9 +279,12 @@ def onMessageInGroup(update: Update, context: CallbackContext):
     if (' ' in messaggio or '_' in messaggio or '-' in messaggio or '+' in messaggio):
         messaggioDaCancellare = update.message.reply_text(
             f'{utente}, devi scrivere una parola sola :P\nil gioco si chiama "ONE WORD stories" per un motivo.')
-        context.bot.delete_message(chat_id, messaggio_id)
-        sleep(3)
-        context.bot.delete_message(chat_id, messaggioDaCancellare.message_id)
+        
+        # Controllo che il bot possa cancellare i messaggi
+        if context.bot.getChatMember(chat_id,context.bot.id).can_delete_messages:
+            context.bot.delete_message(chat_id, messaggio_id)
+            sleep(3)
+            context.bot.delete_message(chat_id, messaggioDaCancellare.message_id)
         return
 
     max_caratteri = 15
@@ -275,9 +293,12 @@ def onMessageInGroup(update: Update, context: CallbackContext):
     if (len(messaggio) > max_caratteri):
         messaggioDaCancellare = update.message.reply_text(
             f'{utente}, il messaggio è troppo lungo (più di {max_caratteri})')
-        context.bot.delete_message(chat_id, messaggio_id)
-        sleep(3)
-        context.bot.delete_message(chat_id, messaggioDaCancellare.message_id)
+        
+        # Controllo che il bot possa cancellare i messaggi
+        if context.bot.getChatMember(chat_id,context.bot.id).can_delete_messages:
+            context.bot.delete_message(chat_id, messaggio_id)
+            sleep(3)
+            context.bot.delete_message(chat_id, messaggioDaCancellare.message_id)
         return
 
     partecipante = partite[f'{chat_id}'].partecipanti[str(idUtente)]
@@ -286,9 +307,12 @@ def onMessageInGroup(update: Update, context: CallbackContext):
     if partecipante.hasWritten:
         messaggioDaCancellare = update.message.reply_text(
             f'{utente} hai già scritto una parola.')
-        context.bot.delete_message(chat_id, messaggio_id)
-        sleep(3)
-        context.bot.delete_message(chat_id, messaggioDaCancellare.message_id)
+        
+        # Controllo che il bot possa cancellare i messaggi
+        if context.bot.getChatMember(chat_id,context.bot.id).can_delete_messages:
+            context.bot.delete_message(chat_id, messaggio_id)
+            sleep(3)
+            context.bot.delete_message(chat_id, messaggioDaCancellare.message_id)
         return
 
 
@@ -304,7 +328,7 @@ def onMessageInGroup(update: Update, context: CallbackContext):
             partite[f'{chat_id}'].partecipanti[f'{id}'].hasWritten = False
 
         messaggioDaCancellare = update.message.reply_text(
-            f'Tutti i partecipanti hanno scritto una parola. Ora potete riscrivere')
+            f'Tutti i partecipanti hanno scritto una parola. Ora ricominciamo da {partite[f"{chat_id}"].getAllPartecipants()[0].nomeUtente}')
         sleep(3)
         context.bot.delete_message(chat_id, messaggioDaCancellare.message_id)
 
@@ -343,7 +367,7 @@ def end_game(update: Update, context: CallbackContext):
     # Se la storia non è vuota la stampi, altrimenti termini la partita e basta
     if (storie[f'{chat_id}'] != ""):
         update.message.reply_text("Termino la partita. Ecco la vostra storia:")
-        update.message.reply_text(capwords(storie[f'{chat_id}'], '. '))
+        update.message.reply_text(f"#storia\n\n{capwords(storie[f'{chat_id}'], '. ').replace(' .', '.').replace(' ,', ',')}")
     else:
         update.message.reply_text("Termino la partita.")
 
