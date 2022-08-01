@@ -8,8 +8,9 @@
 # - ✔ Non deve cancellare gli sticker, le gif e cose simili
 # - Attacca i punti alle parole della storia finale    
 
-from ast import Call
 import logging # Per loggare (non si usa "print()" ma logger.info())
+from json import JSONEncoder
+import jsonpickle
 import requests  # Per mandare la richiesta di invio messaggio quando online
 
 from string import capwords
@@ -58,6 +59,8 @@ class Partecipante:
         self.idUtente = id
         self.hasWritten = False
         self.voteSkip = False
+        self.asleep = False
+        self.MessaggiWakeUp: list[Message] = []
 
 
 # Rappresenta una partita:
@@ -319,8 +322,17 @@ def onMessageInGroup(update: Update, context: CallbackContext):
     storie[str(chat_id)] += messaggio + ' ' # Aggiungi il messaggio alla storia 
                                             # (avrei potuto mettere la stringa dentro il dictionary partite
                                             #  ma ora non ho voglia di cambiare tutto)
-    
+
     partecipante.hasWritten = True # True, ha scritto
+
+    # Riguardare questa parte, sono le 3 di notte ho sonno, scherzo vado a guardare anime
+    if partecipante.asleep:
+        if context.bot.getChatMember(chat_id,context.bot.id).can_delete_messages:
+            for mex in partecipante.MessaggiWakeUp:
+                context.bot.delete_message(chat_id, mex.message_id)
+            partecipante.MessaggiWakeUp = []
+
+        partecipante.asleep = False
 
     # Se hanno scritto tutti, metti a tutti "hasWritten = false"
     if all_partecipants_have_written(partite[f'{chat_id}']):
@@ -433,8 +445,11 @@ def skip_turn(update: Update, context: CallbackContext):
     context.bot.edit_message_text(chat_id = chat_id, message_id = partite[f'{chat_id}'].MessaggioVoteSkip.message_id, text = f"{partite[f'{chat_id}'].MessaggioVoteSkip.text[0:partite[f'{chat_id}'].MessaggioVoteSkip.text.rfind('.')+1]}\n{partite[f'{chat_id}'].getVotes()}/{partite[f'{chat_id}'].getNumberOfPlayers() - 1}")
 
     if partite[f'{chat_id}'].getVotes() == partite[f'{chat_id}'].getNumberOfPlayers() - 1:
-        update.message.reply_text(f'Ok, skippo il turno')
+        update.message.reply_text(f'{partite[f"{chat_id}"].getVotes()} voti di {partite[f"{chat_id}"].getNumberOfPlayers()}, skip confermato.')
         partite[f'{chat_id}'].partecipanti[f"{partite[f'{chat_id}'].prossimoTurno().idUtente}"].hasWritten = True
+
+        for partecipante in partite[f"{chat_id}"].getAllPartecipants():
+            partecipante.voteSkip = False
 
 
 def wakeUp(update: Update, context: CallbackContext):
@@ -457,7 +472,9 @@ def wakeUp(update: Update, context: CallbackContext):
         update.message.reply_text("Partita non avviata")
         return
     
-    update.message.reply_text(f"Sveglia {partite[f'{chat_id}'].prossimoTurno().nomeUtente}, tocca a te!")
+    #update.message.reply_text(f"Sveglia {partite[f'{chat_id}'].prossimoTurno().nomeUtente}, tocca a te!")
+    partite[f"{chat_id}"].prossimoTurno().MessaggiWakeUp.append(update.message)
+    partite[f"{chat_id}"].prossimoTurno().MessaggiWakeUp.append(update.message.reply_text(f"Sveglia {partite[f'{chat_id}'].prossimoTurno().nomeUtente}, tocca a te!"))
 
     
 
