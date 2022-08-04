@@ -125,7 +125,7 @@ def start(update: Update, context: CallbackContext):  # /start
 
     logging.info(f'{utente}, {idUtente} - Ha eseguito /start')
     update.message.reply_text(
-        f'Benvenuto nel bot "One Word Story". Per giocare aggiungimi in un gruppo COME AMMINISTRATORE e fai /crea_partita')
+        f'Benvenuto nel bot "One Word Story". Per giocare aggiungimi in un gruppo e fai /crea_partita')
 
 
 def crea_partita(update: Update, context: CallbackContext):
