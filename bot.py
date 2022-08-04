@@ -9,8 +9,6 @@
 # - Attacca i punti alle parole della storia finale    
 
 import logging # Per loggare (non si usa "print()" ma logger.info())
-from json import JSONEncoder
-import jsonpickle
 import requests  # Per mandare la richiesta di invio messaggio quando online
 
 from string import capwords
