@@ -1,13 +1,3 @@
-# TO-DO
-# - ✔ Comando /wakeUp: Tagga a chi tocca (in caso è afk) 
-# - ✔ Skip di un turno a votazione, in caso qualcuno sia afk
-# - ✔ Aggiungere #storie ai messaggi con le storie per trovarli più facilmente
-# - ✔ Se il bot non ha il permesso per cancellare i messaggi lo dice e non crasha
-# - X Comando per disabilitare la cancellazione dei messaggi durante il game (X: Se non vuoi che cancella, non metterlo admin)
-# - ✔ Tagga tutti quando inizia un game
-# - ✔ Non deve cancellare gli sticker, le gif e cose simili
-# - Attacca i punti alle parole della storia finale    
-
 import logging # Per loggare (non si usa "print()" ma logger.info())
 import requests  # Per mandare la richiesta di invio messaggio quando online
 
@@ -58,7 +48,7 @@ class Partecipante:
         self.hasWritten = False
         self.voteSkip = False
         self.asleep = False
-        self.MessaggiWakeUp: list[Message] = []
+        self.MessaggiDaCancellare: list[Message] = []
 
 
 # Rappresenta una partita:
@@ -316,6 +306,12 @@ def onMessageInGroup(update: Update, context: CallbackContext):
             context.bot.delete_message(chat_id, messaggioDaCancellare.message_id)
         return
 
+    if partecipante.asleep:
+        if context.bot.getChatMember(chat_id,context.bot.id).can_delete_messages:
+            for mex in partecipante.MessaggiDaCancellare:
+                context.bot.delete_message(chat_id, mex.message_id)
+            partecipante.MessaggiDaCancellare = []
+        partecipante.asleep = False
 
     storie[str(chat_id)] += messaggio + ' ' # Aggiungi il messaggio alla storia 
                                             # (avrei potuto mettere la stringa dentro il dictionary partite
@@ -323,14 +319,7 @@ def onMessageInGroup(update: Update, context: CallbackContext):
 
     partecipante.hasWritten = True # True, ha scritto
 
-    # Riguardare questa parte, sono le 3 di notte ho sonno, scherzo vado a guardare anime
-    if partecipante.asleep:
-        if context.bot.getChatMember(chat_id,context.bot.id).can_delete_messages:
-            for mex in partecipante.MessaggiWakeUp:
-                context.bot.delete_message(chat_id, mex.message_id)
-            partecipante.MessaggiWakeUp = []
 
-        partecipante.asleep = False
 
     # Se hanno scritto tutti, metti a tutti "hasWritten = false"
     if all_partecipants_have_written(partite[f'{chat_id}']):
@@ -442,12 +431,21 @@ def skip_turn(update: Update, context: CallbackContext):
     partite[f'{chat_id}'].partecipanti[f'{idUtente}'].voteSkip = True
     context.bot.edit_message_text(chat_id = chat_id, message_id = partite[f'{chat_id}'].MessaggioVoteSkip.message_id, text = f"{partite[f'{chat_id}'].MessaggioVoteSkip.text[0:partite[f'{chat_id}'].MessaggioVoteSkip.text.rfind('.')+1]}\n{partite[f'{chat_id}'].getVotes()}/{partite[f'{chat_id}'].getNumberOfPlayers() - 1}")
 
-    if partite[f'{chat_id}'].getVotes() == partite[f'{chat_id}'].getNumberOfPlayers() - 1:
+    if partite[f'{chat_id}'].getVotes() >= partite[f'{chat_id}'].getNumberOfPlayers() - 1:
         update.message.reply_text(f'{partite[f"{chat_id}"].getVotes()} voti di {partite[f"{chat_id}"].getNumberOfPlayers()}, skip confermato.')
         partite[f'{chat_id}'].partecipanti[f"{partite[f'{chat_id}'].prossimoTurno().idUtente}"].hasWritten = True
 
         for partecipante in partite[f"{chat_id}"].getAllPartecipants():
             partecipante.voteSkip = False
+        
+        if all_partecipants_have_written(partite[f'{chat_id}']):
+            for id in partite[f'{chat_id}'].getAllPartecipantsIDs():
+                partite[f'{chat_id}'].partecipanti[f'{id}'].hasWritten = False
+
+            messaggioDaCancellare = update.message.reply_text(
+                f'Tutti i partecipanti hanno scritto una parola. Ora ricominciamo da {partite[f"{chat_id}"].getAllPartecipants()[0].nomeUtente}')
+            sleep(3)
+            context.bot.delete_message(chat_id, messaggioDaCancellare.message_id)
 
 
 def wakeUp(update: Update, context: CallbackContext):
@@ -471,9 +469,9 @@ def wakeUp(update: Update, context: CallbackContext):
         return
     
     #update.message.reply_text(f"Sveglia {partite[f'{chat_id}'].prossimoTurno().nomeUtente}, tocca a te!")
-    partite[f"{chat_id}"].prossimoTurno().MessaggiWakeUp.append(update.message)
-    partite[f"{chat_id}"].prossimoTurno().MessaggiWakeUp.append(update.message.reply_text(f"Sveglia {partite[f'{chat_id}'].prossimoTurno().nomeUtente}, tocca a te!"))
-
+    partite[f"{chat_id}"].prossimoTurno().MessaggiDaCancellare.append(update.message)
+    partite[f"{chat_id}"].prossimoTurno().MessaggiDaCancellare.append(update.message.reply_text(f"Sveglia {partite[f'{chat_id}'].prossimoTurno().nomeUtente}, tocca a te!"))
+    partite[f"{chat_id}"].prossimoTurno().asleep = True
     
 
 # Segnala quando il bot crasha, con motivo del crash
