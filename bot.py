@@ -1,5 +1,4 @@
 import logging # Per loggare (non si usa "print()" ma logger.info())
-import requests  # Per mandare la richiesta di invio messaggio quando online
 
 from string import capwords
 from typing import Dict
@@ -515,8 +514,6 @@ def main():
 
     
     # Questo per ricevere una notifica quando il bot è online; utile all'inizio, dopo disattivalo sennò impazzisci per le notifiche
-    # requests.post(
-    #     f"https://api.telegram.org/bot{TOKEN}/sendMessage?chat_id={ID_OWNER}&text=Bot online")
 
     # In caso di errore vai nel metodo "error"
     dp.add_error_handler(error)
