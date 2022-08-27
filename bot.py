@@ -27,6 +27,7 @@ with open('token.txt', 'r') as f:
 
 # ID TELEGRAM PER RICEVERE NOTIFICA (ottienilo con t.me/JsonDumpBot)
 ID_OWNER = "245996916"
+ID_CANALE_LOG = '-1001741378490'
 
 # https://docs.python-telegram-bot.org/en/stable/telegram.ext.handler.html
 
@@ -481,6 +482,7 @@ def error(update: Update, context: CallbackContext):
         sleep(2)
     else:
         logger.warning('Update "%s" caused error "%s"', update, context.error)
+        context.bot.send_message(ID_CANALE_LOG, text=f'{context.bot.name}\nUpdate "{update}" caused error "{context.error}')
 
 def main():
     # Avvia il bot
