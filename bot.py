@@ -476,59 +476,59 @@ def wakeUp(update: Update, context: CallbackContext):
 
 # Segnala quando il bot crasha, con motivo del crash
 def error(update: Update, context: CallbackContext):
-    logger.warning('Update "%s" caused error "%s"', update, context.error)
+    if (context.error is requests.exceptions.ConnectionError):
+        logger.warn("Qualcosa è andato storto con la connessione, dormo 2 secondi")
+        sleep(2)
+    else:
+        logger.warning('Update "%s" caused error "%s"', update, context.error)
 
 def main():
-    try: 
-        # Avvia il bot
+    # Avvia il bot
 
-        # Crea l'Updater e passagli il token del tuo bot
-        # Accertati di impostare use_context=True per usare i nuovi context-based callbacks (non so cosa siano)
-        # Dalla versione 12 non sarà più necessario
-        updater = Updater(TOKEN, use_context=True)
+    # Crea l'Updater e passagli il token del tuo bot
+    # Accertati di impostare use_context=True per usare i nuovi context-based callbacks (non so cosa siano)
+    # Dalla versione 12 non sarà più necessario
+    updater = Updater(TOKEN, use_context=True)
 
-        # Prendi il dispatcher per registrarci gli handlers (tipo comandi e messaggi)
-        dp = updater.dispatcher
+    # Prendi il dispatcher per registrarci gli handlers (tipo comandi e messaggi)
+    dp = updater.dispatcher
 
-        # add_handler "aggiungi qualcosa" che definisci dentro, in questo caso due "comandi" (quelli con lo slash)
-        # sintassi: add_handler(CommandHandler("scritta_dopo_lo_slash",metodo))
+    # add_handler "aggiungi qualcosa" che definisci dentro, in questo caso due "comandi" (quelli con lo slash)
+    # sintassi: add_handler(CommandHandler("scritta_dopo_lo_slash",metodo))
 
-        # CommandHandler per i comandi
-        # MessageHandler per i messaggi
-        # Ci sono vari handler che trovi al link alla riga 4
+    # CommandHandler per i comandi
+    # MessageHandler per i messaggi
+    # Ci sono vari handler che trovi al link alla riga 4
 
-        dp.add_handler(CommandHandler("start", start))
-        dp.add_handler(CommandHandler("crea_partita", crea_partita))
-        dp.add_handler(CommandHandler("join_ows_game", join_ows_game))
-        dp.add_handler(CommandHandler("avvia_partita", avvia_partita))
-        dp.add_handler(CommandHandler("end_game", end_game))
-        dp.add_handler(CommandHandler("quit_ows_game", quit_ows_game))
-        dp.add_handler(CommandHandler("skip_turn",skip_turn))
-        dp.add_handler(CommandHandler("wakeUp",wakeUp))
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("crea_partita", crea_partita))
+    dp.add_handler(CommandHandler("join_ows_game", join_ows_game))
+    dp.add_handler(CommandHandler("avvia_partita", avvia_partita))
+    dp.add_handler(CommandHandler("end_game", end_game))
+    dp.add_handler(CommandHandler("quit_ows_game", quit_ows_game))
+    dp.add_handler(CommandHandler("skip_turn",skip_turn))
+    dp.add_handler(CommandHandler("wakeUp",wakeUp))
 
-        # Legge i messaggi dei gruppi e supergruppi ma non i comandi, per permettere /end_game e /quit_ows_game
-        dp.add_handler( 
-            MessageHandler(
-                Filters.chat_type.groups & 
-                Filters.text &
-                ~Filters.command, onMessageInGroup, run_async=True) # async perché c'è sleep per aspettare i messaggi
-                ) 
+    # Legge i messaggi dei gruppi e supergruppi ma non i comandi, per permettere /end_game e /quit_ows_game
+    dp.add_handler( 
+        MessageHandler(
+            Filters.chat_type.groups & 
+            Filters.text &
+            ~Filters.command, onMessageInGroup, run_async=True) # async perché c'è sleep per aspettare i messaggi
+            ) 
 
-        
-        # Questo per ricevere una notifica quando il bot è online; utile all'inizio, dopo disattivalo sennò impazzisci per le notifiche
+    
+    # Questo per ricevere una notifica quando il bot è online; utile all'inizio, dopo disattivalo sennò impazzisci per le notifiche
 
-        # In caso di errore vai nel metodo "error"
-        dp.add_error_handler(error)
+    # In caso di errore vai nel metodo "error"
+    dp.add_error_handler(error)
 
-        # Avvia il bot con il polling
-        updater.start_polling()
+    # Avvia il bot con il polling
+    updater.start_polling()
 
-        # Con idle avvii il bot finché non premi CTRL-C o il processo riceve "SIGINT", "SIGTERM" o "SIGABRT".
-        # Questo dovrebbe essere usato la maggior parte del tempo, in quanto start_polling() non è bloccante e interromperà il bot.
-        updater.idle()
-    except requests.exceptions.ConnectionError:
-        logger.warn("Qualcosa con la connessione è andato male, dormo 2 secondi")
-        sleep(2)
+    # Con idle avvii il bot finché non premi CTRL-C o il processo riceve "SIGINT", "SIGTERM" o "SIGABRT".
+    # Questo dovrebbe essere usato la maggior parte del tempo, in quanto start_polling() non è bloccante e interromperà il bot.
+    updater.idle()
 
 
 
