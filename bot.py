@@ -7,6 +7,7 @@ from typing import Dict
 from time import sleep
 import requests
 
+
 from telegram import (
     Bot,
     Update, # È il tipo che usiamo nelle funzioni
@@ -15,7 +16,6 @@ from telegram import (
     InlineKeyboardMarkup
 )
 
-import telegram
 import gettext
 import users
 
@@ -544,6 +544,11 @@ def linguaPremuta(update: Update, context: CallbackContext):
     
 def cambiaLingua(id: str, lingua: str):
     lingua = lingua.replace('\n','')
+
+    lingue_possibli = ["it","en"]
+    
+    if not lingua in lingue_possibli:
+        lingua = "en"
 
     lang = gettext.translation('base',localedir='locales', languages=[lingua])
     lang.install()
