@@ -295,8 +295,9 @@ def onMessageInGroup(update: Update, context: CallbackContext):
     
     # Se il messaggio è modificato, non aggiornare la storia
     if update.edited_message != None:
-        update.edited_message.reply_text(_(
-            'Hey {utente}, non puoi modificare un messaggio! La tua parola rimarrà: {storia}').format(utente=utente, storia=storie[f"{chat_id}"].split(" ")[-2]))
+        prova_messaggio(_(
+            'Hey {utente}, non puoi modificare un messaggio! La tua parola rimarrà: {storia}').format(utente=utente, storia=storie[f"{chat_id}"].split(" ")[-2]),
+                        update=update, bot=context.bot)
         return
 
     messaggio = update.message.text 
@@ -505,7 +506,9 @@ def skip_turn(update: Update, context: CallbackContext):
     context.bot.edit_message_text(chat_id = chat_id, message_id = partite[f'{chat_id}'].MessaggioVoteSkip.message_id, text = f"{partite[f'{chat_id}'].MessaggioVoteSkip.text[0:partite[f'{chat_id}'].MessaggioVoteSkip.text.rfind('.')+1]}\n{partite[f'{chat_id}'].getVotes()}/{partite[f'{chat_id}'].getNumberOfPlayers() - 1}")
 
     if partite[f'{chat_id}'].getVotes() >= partite[f'{chat_id}'].getNumberOfPlayers() - 1:
-        prova_messaggio(_('{votes} voti di {totalPlayers}, skip confermato.').format(voti=partite[f"{chat_id}"].getVotes(),totalPlayers=partite[f"{chat_id}"].getNumberOfPlayers()),update=update,
+        voti_attuali = partite[f"{chat_id}"].getVotes()
+        player_totali = partite[f"{chat_id}"].getNumberOfPlayers()
+        prova_messaggio(_('{votes} voti di {totalPlayers}, skip confermato.').format(votes=voti_attuali,totalPlayers=player_totali),update=update,
                     bot=context.bot)
         partite[f'{chat_id}'].partecipanti[f"{partite[f'{chat_id}'].prossimoTurno().idUtente}"].hasWritten = True
 
@@ -589,8 +592,9 @@ def linguaPremuta(update: Update, context: CallbackContext):
         users.saveUser(id, ('@' + query.from_user.username) if query.from_user.username != None else query.from_user.full_name, query.data.split(',')[1])
     else:
         users.editUserLang(id, query.data.split(',')[1])
-
+    
     cambiaLingua(id,query.data.split(',')[1])
+
     
 def cambiaLingua(id: str, lingua: str):
     lingua = lingua.replace('\n','')
