@@ -10,6 +10,7 @@ import requests
 
 from telegram import (
     Bot,
+    ParseMode,
     Update, # È il tipo che usiamo nelle funzioni
     Message, # Il tipo per i messaggi
     InlineKeyboardButton,
@@ -127,13 +128,28 @@ def start(update: Update, context: CallbackContext):  # /start
     cambiaLingua(str(idUtente),users.getUserLang(str(idUtente)))
 
     logging.info(f'{utente}, {idUtente} - Ha eseguito /start')
-    update.message.reply_text(_(
-        'Benvenuto nel bot "One Word Story". Per giocare aggiungimi in un gruppo e fai /crea_partita'))
+    prova_messaggio(_(
+        'Benvenuto nel bot "One Word Story". Per giocare aggiungimi in un gruppo e fai /crea_partita'),
+                    update=update,
+                    bot=context.bot)
 
+
+def prova_messaggio(messaggio:str, update: Update, bot: Bot, parse_mode=ParseMode.HTML, reply_markup=None):
+    try: 
+        return update.message.reply_text(
+            messaggio, 
+            parse_mode=parse_mode,
+            reply_markup=reply_markup
+        )
+    except:
+        return bot.send_message(
+            chat_id = update.message.chat_id,
+            text = messaggio,
+            parse_mode = parse_mode,
+            reply_markup=reply_markup
+        )
 
 def crea_partita(update: Update, context: CallbackContext):
-    
-    
     global partite
 
     # Assegno tutte le variabili per comodità
@@ -146,17 +162,21 @@ def crea_partita(update: Update, context: CallbackContext):
 
     # Controllo se la chat è una chat privata, se sì esce dalla funzione
     if chat_id > 0:
-        update.message.reply_text(_(
-            'Hey {utente}, non vorrai mica giocare da solo? Usa questo comando in un gruppo').format(utente=utente))
+        prova_messaggio(_(
+            'Hey {utente}, non vorrai mica giocare da solo? Usa questo comando in un gruppo').format(utente=utente),update=update,
+                    bot=context.bot)
         return
 
     # Se la chat non è presente nella lista delle partite
     if not f'{chat_id}' in partite:
-        mess = update.message.reply_text(_(
-            '{utente} ha creato una partita. Entra con /join_ows_game.\n\nPartecipanti:\n- {utente}').format(utente=utente))
+        
+        mess = prova_messaggio(_(
+            '{utente} ha creato una partita. Entra con /join_ows_game.\n\nPartecipanti:\n- {utente}').format(utente=utente),update=update,
+                    bot=context.bot)
 
         if not context.bot.getChatMember(chat_id,context.bot.id).can_delete_messages:
-            update.message.reply_text(_('Il bot non ha i permessi per cancellare i messaggi, si può giocare comunque, ma consiglio di darglieli.'))
+            prova_messaggio(_('Il bot non ha i permessi per cancellare i messaggi, si può giocare comunque, ma consiglio di darglieli.'),update=update,
+                    bot=context.bot)
 
         partite[f'{chat_id}'] = Partita(utente, idUtente, mess=mess) # Crea la partita con l'utente leader (chi l'ha creata)
         storie[f'{chat_id}'] = '' # Inizializzo la variabile storie per la chat a cui andrò a concatenare le varie parole
@@ -164,8 +184,9 @@ def crea_partita(update: Update, context: CallbackContext):
             utente, idUtente) # Aggiungo il creatore ai partecipanti
         logging.info(f'{utente}, {idUtente} - Ha creato una partita nel gruppo {update.message.chat.title}')
     else: # Avviso se la partita è già presente nella lista
-        update.message.reply_text(_(
-            'Partita già creata. Entra con /join_ows_game'))
+        prova_messaggio(_(
+            'Partita già creata. Entra con /join_ows_game'),update=update,
+                    bot=context.bot)
 
 
 
@@ -182,13 +203,15 @@ def join_ows_game(update: Update, context: CallbackContext):
 
     # Controllo se per la chat esiste una partita
     if not f'{chat_id}' in partite:
-        update.message.reply_text(_(
-            'Non è stata creata nessuna partita. Creane una con /crea_partita'))
+        prova_messaggio(_(
+            'Non è stata creata nessuna partita. Creane una con /crea_partita'),update=update,
+                    bot=context.bot)
         return
 
     # Controllo se l'utente è già nella lista dei partecipanti della partita
     if str(idUtente) in partite[f'{chat_id}'].partecipanti:
-        update.message.reply_text(_('Partecipi già alla partita!'))
+        prova_messaggio(_('Partecipi già alla partita!'),update=update,
+                    bot=context.bot)
         return
 
 
@@ -200,7 +223,8 @@ def join_ows_game(update: Update, context: CallbackContext):
     partite[f'{chat_id}'].MessaggioListaPartecipanti = context.bot.edit_message_text(
         chat_id=chat_id, message_id=partite[f'{chat_id}'].MessaggioListaPartecipanti.message_id, text=partite[f'{chat_id}'].MessaggioListaPartecipanti.text + f"\n- {utente}")
 
-    update.message.reply_text(_('{utente} è entrato nella partita').format(utente=utente))
+    prova_messaggio(_('{utente} è entrato nella partita').format(utente=utente),update=update,
+                    bot=context.bot)
 
 def avvia_partita(update: Update, context: CallbackContext):
     global partite
@@ -214,29 +238,34 @@ def avvia_partita(update: Update, context: CallbackContext):
     
     # Se la partita non esiste
     if not f'{chat_id}' in partite: 
-        update.message.reply_text(_(
-            'Non è stata creata nessuna partita. Creane una con /crea_partita'))
+        prova_messaggio(_(
+            'Non è stata creata nessuna partita. Creane una con /crea_partita'),update=update,
+                    bot=context.bot)
         return
 
     # Se un utente che non è il creatore prova ad avviare la partita, non può
     if not idUtente == partite[f'{chat_id}'].leaderId:
-        update.message.reply_text(_("Non hai creato tu la partita"))
+        prova_messaggio(_("Non hai creato tu la partita"),update=update,
+                    bot=context.bot)
         return
 
     # Controlla se la partita è già avviata
     if partite[f'{chat_id}'].isStarted:
-        update.message.reply_text(_("Partita già avviata"))
+        prova_messaggio(_("Partita già avviata"),update=update,
+                    bot=context.bot)
         return
 
     # Se tutti i controlli sono andati a buon fine, avvia la partita
     partite[f'{chat_id}'].isStarted = True 
 
     if context.bot.getChatMember(chat_id,context.bot.id).can_delete_messages:
-        update.message.reply_text(_(
-            "{utente} ha avviato la partita. Prenderò una parola a testa da ognuno di voi in ordine, per poi comporre una storia da esse, inoltre da ora cancellerò tutti i messaggi dei partecipanti che:\n - Non contengono una parola sola;\n - Hanno già scritto una parola.\n\nMetti * o / all\'inizio di un messaggio per non farlo cancellare dal bot\n\nL'ordine dei turni è:\n").format(utente=utente) + partite[f'{chat_id}'].getAllPartecipantsString())
+        prova_messaggio(_(
+            "{utente} ha avviato la partita. Prenderò una parola a testa da ognuno di voi in ordine, per poi comporre una storia da esse, inoltre da ora cancellerò tutti i messaggi dei partecipanti che:\n - Non contengono una parola sola;\n - Hanno già scritto una parola.\n\nMetti * o / all\'inizio di un messaggio per non farlo cancellare dal bot\n\nL'ordine dei turni è:\n").format(utente=utente) + partite[f'{chat_id}'].getAllPartecipantsString(),update=update,
+                    bot=context.bot)
     else:
-        update.message.reply_text(_(
-            "{utente} ha avviato la partita. Prenderò una parola a testa da ognuno di voi in ordine, per poi comporre una storia da esse.\n\nL'ordine dei turni è:\n").format(utente=utente) + partite[f'{chat_id}'].getAllPartecipantsString())
+        prova_messaggio(_(
+            "{utente} ha avviato la partita. Prenderò una parola a testa da ognuno di voi in ordine, per poi comporre una storia da esse.\n\nL'ordine dei turni è:\n").format(utente=utente) + partite[f'{chat_id}'].getAllPartecipantsString(),update=update,
+                    bot=context.bot)
 
 # Questo metodo è avviato asincrono per poter usare sleep per cancellare i messaggi dopo tot secondi
 def onMessageInGroup(update: Update, context: CallbackContext):
@@ -278,8 +307,9 @@ def onMessageInGroup(update: Update, context: CallbackContext):
     
     # Se non è il turno dell'utente avvisa e cancella il messaggio
     if not idUtente == partite[f'{chat_id}'].prossimoTurno().idUtente:
-        messaggioDaCancellare = update.message.reply_text(_(
-            "{utente}, non è il tuo turno. Tocca a {turno}").format(utente=utente, turno=partite[f'{chat_id}'].prossimoTurno().nomeUtente))
+        messaggioDaCancellare = prova_messaggio(_(
+            "{utente}, non è il tuo turno. Tocca a {turno}").format(utente=utente, turno=partite[f'{chat_id}'].prossimoTurno().nomeUtente),update=update,
+                    bot=context.bot)
         
         # Controllo che il bot possa cancellare i messaggi
         if context.bot.getChatMember(chat_id,context.bot.id).can_delete_messages:
@@ -292,8 +322,9 @@ def onMessageInGroup(update: Update, context: CallbackContext):
 
     # Se il messaggio contiene uno dei seguenti caratteri avvisa e cancella il messaggio
     if (' ' in messaggio or '_' in messaggio or '-' in messaggio or '+' in messaggio):
-        messaggioDaCancellare = update.message.reply_text(_(
-            '{utente}, devi scrivere una parola sola :P\nil gioco si chiama "ONE WORD stories" per un motivo.').format(utente=utente))
+        messaggioDaCancellare = prova_messaggio(_(
+            '{utente}, devi scrivere una parola sola :P\nil gioco si chiama "ONE WORD stories" per un motivo.').format(utente=utente),update=update,
+                    bot=context.bot)
         
         # Controllo che il bot possa cancellare i messaggi
         if context.bot.getChatMember(chat_id,context.bot.id).can_delete_messages:
@@ -306,8 +337,9 @@ def onMessageInGroup(update: Update, context: CallbackContext):
 
     # Se il messaggio è troppo lungo avvia e cancella il messaggio
     if (len(messaggio) > max_caratteri):
-        messaggioDaCancellare = update.message.reply_text(_(
-            '{utente}, il messaggio è troppo lungo (più di {max_caratteri})').format(utente=utente, max_caratteri=max_caratteri))
+        messaggioDaCancellare = prova_messaggio(_(
+            '{utente}, il messaggio è troppo lungo (più di {max_caratteri})').format(utente=utente, max_caratteri=max_caratteri),update=update,
+                    bot=context.bot)
         
         # Controllo che il bot possa cancellare i messaggi
         if context.bot.getChatMember(chat_id,context.bot.id).can_delete_messages:
@@ -320,8 +352,9 @@ def onMessageInGroup(update: Update, context: CallbackContext):
 
     # Se il partecipante ha già scritto avvisa e cancella il messaggio
     if partecipante.hasWritten:
-        messaggioDaCancellare = update.message.reply_text(_(
-            '{utente} hai già scritto una parola.').format(utente=utente))
+        messaggioDaCancellare = prova_messaggio(_(
+            '{utente} hai già scritto una parola.').format(utente=utente),update=update,
+                    bot=context.bot)
         
         # Controllo che il bot possa cancellare i messaggi
         if context.bot.getChatMember(chat_id,context.bot.id).can_delete_messages:
@@ -350,8 +383,9 @@ def onMessageInGroup(update: Update, context: CallbackContext):
         for id in partite[f'{chat_id}'].getAllPartecipantsIDs():
             partite[f'{chat_id}'].partecipanti[f'{id}'].hasWritten = False
 
-        messaggioDaCancellare = update.message.reply_text(_(
-            'Tutti i partecipanti hanno scritto una parola. Ora ricominciamo da {turno}').format(turno=partite[f"{chat_id}"].getAllPartecipants()[0].nomeUtente))
+        messaggioDaCancellare = prova_messaggio(_(
+            'Tutti i partecipanti hanno scritto una parola. Ora ricominciamo da {turno}').format(turno=partite[f"{chat_id}"].getAllPartecipants()[0].nomeUtente),update=update,
+                    bot=context.bot)
         sleep(3)
         context.bot.delete_message(chat_id, messaggioDaCancellare.message_id)
 
@@ -379,21 +413,25 @@ def end_game(update: Update, context: CallbackContext):
 
     # Se la partita non esiste non puoi terminarla
     if not f'{chat_id}' in partite:
-        update.message.reply_text(_("Devi prima creare una partita."))
+        prova_messaggio(_("Devi prima creare una partita."))
         return
 
     # Se non sei il leader della partita non puoi terminarla
     if not idUtente == partite[f'{chat_id}'].leaderId:
-        update.message.reply_text(_(
-            "{utente} non hai avviato tu la partita! Puoi usare /quit_ows_game al massimo").format(utente=utente))
+        prova_messaggio(_(
+            "{utente} non hai avviato tu la partita! Puoi usare /quit_ows_game al massimo").format(utente=utente),update=update,
+                    bot=context.bot)
         return
 
     # Se la storia non è vuota la stampi, altrimenti termini la partita e basta
     if (storie[f'{chat_id}'] != ""):
-        update.message.reply_text(_("Termino la partita. Ecco la vostra storia:"))
-        update.message.reply_text(_("#storia\n\n{story}").format(story=capwords(storie[f'{chat_id}'], '. ').replace(' .', '.').replace(' ,', ',')))
+        prova_messaggio(_("Termino la partita. Ecco la vostra storia:"),update=update,
+                    bot=context.bot)
+        prova_messaggio(_("#storia\n\n{story}").format(story=capwords(storie[f'{chat_id}'], '. ').replace(' .', '.').replace(' ,', ',')),update=update,
+                    bot=context.bot)
     else:
-        update.message.reply_text(_("Termino la partita."))
+        prova_messaggio(_("Termino la partita."),update=update,
+                    bot=context.bot)
 
     # Azzero qualsiasi cosa possibile per cancellare la partita
     partite.pop(f'{chat_id}', None)
@@ -413,18 +451,21 @@ def quit_ows_game(update: Update, context: CallbackContext):
 
     # Se non esiste una partita non puoi quittarla e.e
     if not f'{chat_id}' in partite:
-        update.message.reply_text(_(
-            'Non è stata creata nessuna partita. Creane una con /crea_partita'))
+        prova_messaggio(_(
+            'Non è stata creata nessuna partita. Creane una con /crea_partita'),update=update,
+                    bot=context.bot)
         return
 
     # Se l'utente non partecipa alla partita non può quittare lol
     if not str(idUtente) in partite[f'{chat_id}'].partecipanti:
-        update.message.reply_text(_('Non sei in partita!'))
+        prova_messaggio(_('Non sei in partita!'),update=update,
+                    bot=context.bot)
         return
 
     # Se passi tutti i controlli togli l'utente dai partecipanti e ristampa la lista
     partite[f'{chat_id}'].partecipanti.pop(str(idUtente))
-    mess = update.message.reply_text(_("Sei uscito dalla partita con successo.\n\nPartecipanti restanti:\n{remain}").format(remain=partite[f'{chat_id}'].getAllPartecipantsString()))
+    mess = prova_messaggio(_("Sei uscito dalla partita con successo.\n\nPartecipanti restanti:\n{remain}").format(remain=partite[f'{chat_id}'].getAllPartecipantsString()),update=update,
+                    bot=context.bot)
     
     # Nuova lista da aggiornare se qualcuno joina
     partite[f'{chat_id}'].MessaggioListaPartecipanti = mess
@@ -443,17 +484,20 @@ def skip_turn(update: Update, context: CallbackContext):
 
     # Se la partita non esiste
     if not f'{chat_id}' in partite:
-        update.message.reply_text(_("Devi prima partecipare ad una partita."))
+        prova_messaggio(_("Devi prima partecipare ad una partita."),update=update,
+                    bot=context.bot)
         return
 
     # Se l'utente non partecipa alla partita non può skippare
     if not str(idUtente) in partite[f'{chat_id}'].partecipanti:
-        update.message.reply_text(_('Non puoi votare, non sei in partita!'))
+        prova_messaggio(_('Non puoi votare, non sei in partita!'),update=update,
+                    bot=context.bot)
         return
 
     
     if partite[f'{chat_id}'].getVotes() == 0: # 
-        mess = update.message.reply_text(_('{utente} ha avviato la votazione per skippare il turno di {turno}.\n{voteStatus}/{totalPlayers}').format(utente=utente, turno=partite[f"{chat_id}"].prossimoTurno().nomeUtente, voteStatus=partite[f"{chat_id}"].getVotes(), totalPlayers=partite[f"{chat_id}"].getNumberOfPlayers()))
+        mess = prova_messaggio(_('{utente} ha avviato la votazione per skippare il turno di {turno}.\n{voteStatus}/{totalPlayers}').format(utente=utente, turno=partite[f"{chat_id}"].prossimoTurno().nomeUtente, voteStatus=partite[f"{chat_id}"].getVotes(), totalPlayers=partite[f"{chat_id}"].getNumberOfPlayers()),update=update,
+                    bot=context.bot)
         partite[f'{chat_id}'].MessaggioVoteSkip = mess
     
     
@@ -461,7 +505,8 @@ def skip_turn(update: Update, context: CallbackContext):
     context.bot.edit_message_text(chat_id = chat_id, message_id = partite[f'{chat_id}'].MessaggioVoteSkip.message_id, text = f"{partite[f'{chat_id}'].MessaggioVoteSkip.text[0:partite[f'{chat_id}'].MessaggioVoteSkip.text.rfind('.')+1]}\n{partite[f'{chat_id}'].getVotes()}/{partite[f'{chat_id}'].getNumberOfPlayers() - 1}")
 
     if partite[f'{chat_id}'].getVotes() >= partite[f'{chat_id}'].getNumberOfPlayers() - 1:
-        update.message.reply_text(_('{votes} voti di {totalPlayers}, skip confermato.').format(voti=partite[f"{chat_id}"].getVotes(),totalPlayers=partite[f"{chat_id}"].getNumberOfPlayers()))
+        prova_messaggio(_('{votes} voti di {totalPlayers}, skip confermato.').format(voti=partite[f"{chat_id}"].getVotes(),totalPlayers=partite[f"{chat_id}"].getNumberOfPlayers()),update=update,
+                    bot=context.bot)
         partite[f'{chat_id}'].partecipanti[f"{partite[f'{chat_id}'].prossimoTurno().idUtente}"].hasWritten = True
 
         for partecipante in partite[f"{chat_id}"].getAllPartecipants():
@@ -471,8 +516,9 @@ def skip_turn(update: Update, context: CallbackContext):
             for id in partite[f'{chat_id}'].getAllPartecipantsIDs():
                 partite[f'{chat_id}'].partecipanti[f'{id}'].hasWritten = False
 
-            messaggioDaCancellare = update.message.reply_text(_(
-                'Tutti i partecipanti hanno scritto una parola. Ora ricominciamo da {turno}').format(turno=partite[f"{chat_id}"].getAllPartecipants()[0].nomeUtente))
+            messaggioDaCancellare = prova_messaggio(_(
+                'Tutti i partecipanti hanno scritto una parola. Ora ricominciamo da {turno}').format(turno=partite[f"{chat_id}"].getAllPartecipants()[0].nomeUtente),update=update,
+                    bot=context.bot)
             sleep(3)
             context.bot.delete_message(chat_id, messaggioDaCancellare.message_id)
 
@@ -491,17 +537,20 @@ def wakeUp(update: Update, context: CallbackContext):
 
     # Se la partita non esiste
     if not f'{chat_id}' in partite:
-        update.message.reply_text(_("Devi prima partecipare ad una partita."))
+        prova_messaggio(_("Devi prima partecipare ad una partita."),update=update,
+                    bot=context.bot)
         return
 
     # Se la partita è avviata
     if not partite[f'{chat_id}'].isStarted:
-        update.message.reply_text(_("Partita non avviata"))
+        prova_messaggio(_("Partita non avviata"),update=update,
+                    bot=context.bot)
         return
     
-    #update.message.reply_text(_(f"Sveglia {partite[f'{chat_id}'].prossimoTurno().nomeUtente}, tocca a te!")
+    #prova_messaggio(_(f"Sveglia {partite[f'{chat_id}'].prossimoTurno().nomeUtente}, tocca a te!")
     partite[f"{chat_id}"].prossimoTurno().MessaggiDaCancellare.append(update.message)
-    partite[f"{chat_id}"].prossimoTurno().MessaggiDaCancellare.append(update.message.reply_text(_("Sveglia {turno}, tocca a te!").format(turno=partite[f'{chat_id}'].prossimoTurno().nomeUtente)))
+    partite[f"{chat_id}"].prossimoTurno().MessaggiDaCancellare.append(prova_messaggio(_("Sveglia {turno}, tocca a te!").format(turno=partite[f'{chat_id}'].prossimoTurno().nomeUtente)),update=update,
+                    bot=context.bot)
     partite[f"{chat_id}"].prossimoTurno().asleep = True
     
 
@@ -525,7 +574,8 @@ def lingua(update: Update, context: CallbackContext):
 
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    update.message.reply_text("Select a language",reply_markup=reply_markup)
+    prova_messaggio("Select a language",reply_markup=reply_markup,update=update,
+                    bot=context.bot)
 
 def linguaPremuta(update: Update, context: CallbackContext):
     query = update.callback_query
@@ -587,6 +637,7 @@ def main():
     dp.add_handler(CommandHandler("changeLanguage",lingua))
     dp.add_handler(CallbackQueryHandler(linguaPremuta))
 
+    
 
     # Legge i messaggi dei gruppi e supergruppi ma non i comandi, per permettere /end_game e /quit_ows_game
     dp.add_handler( 
