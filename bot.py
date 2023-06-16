@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 import logging # Per loggare (non si usa "print()" ma logger.info())
 
 from string import capwords
@@ -35,7 +33,7 @@ with open('token.txt', 'r') as f:
     TOKEN = f.read().strip()
 
 # ID TELEGRAM PER RICEVERE NOTIFICA (ottienilo con t.me/JsonDumpBot)
-ID_OWNER = "245996916"
+MASTER_ADMIN = [245996916]
 ID_CANALE_LOG = '-1001741378490'
 
 # https://docs.python-telegram-bot.org/en/stable/telegram.ext.handler.html
@@ -46,7 +44,6 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 logger = logging.getLogger(__name__)
 
-# -*- coding: utf-8 -*-
 _ = gettext.gettext
 
 # Rappresenta un partecipante alla partita:
@@ -75,12 +72,11 @@ class Partecipante:
 class Partita:
     def __init__(self, utente, userId, mess) -> None:
         self.leader: str = utente
-        self.leaderId: str = userId
+        self.leaderId: int = userId
         self.partecipanti: Dict[str, Partecipante] = {}
         self.isStarted: bool = False
         self.MessaggioListaPartecipanti: Message = mess
         self.MessaggioVoteSkip: Message
-
 
     def getAllPartecipantsIDs(self) -> list[str]:
         return list(self.partecipanti.keys())
@@ -296,7 +292,7 @@ def onMessageInGroup(update: Update, context: CallbackContext):
     # Se il messaggio è modificato, non aggiornare la storia
     if update.edited_message != None:
         prova_messaggio(_(
-            'Hey {utente}, non puoi modificare un messaggio! La tua parola rimarrà: {storia}').format(utente=utente, storia=storie[f"{chat_id}"].split(" ")[-2]),
+            'Hey {utente}, non puoi modificare un messaggio! La tua parola rimarrà la stessa').format(utente=utente),
                         update=update, bot=context.bot)
         return
 
@@ -412,13 +408,40 @@ def end_game(update: Update, context: CallbackContext):
 
     cambiaLingua(str(idUtente),users.getUserLang(str(idUtente)))
 
+    if idUtente in MASTER_ADMIN:
+        if len(messaggio.split(" ")) > 2:
+            prova_messaggio(_("Devi scrivere solo l'ID del gruppo in cui terminare la partita dopo il comando, non altro"),update=update,bot=context.bot)
+        else:
+            if len(messaggio.split(" ")) > 1:
+                selected_id = str(messaggio.split(" ")[1])
+                if selected_id == "this":
+                    selected_id = chat_id
+            else:
+                selected_id = chat_id
+            
+            if str(selected_id) not in partite:
+                prova_messaggio(_("Il gruppo selezionato non è in partita."),update=update,bot=context.bot)
+                return
+            
+            # Se la storia non è vuota la stampi, altrimenti termini la partita e basta
+            if (storie[f'{selected_id}'] != ""):
+                context.bot.send_message(chat_id=selected_id,text=_("Partita terminata forzatamente da un admin del bot. Ecco la vostra storia:"))
+                context.bot.send_message(chat_id=selected_id,text=_("#storia\n\n{story}").format(story=capwords(storie[f'{selected_id}'], '. ').replace(' .', '.').replace(' ,', ',')))
+            else:
+                context.bot.send_message(chat_id=selected_id,text=_("Partita terminata forzatamente da un admin del bot."))
+            # Azzero qualsiasi cosa possibile per cancellare la partita
+            partite.pop(f'{selected_id}', None)
+            storie.pop(f'{selected_id}', None)
+        return # Non continuo
+    
+    
     # Se la partita non esiste non puoi terminarla
     if not f'{chat_id}' in partite:
-        prova_messaggio(_("Devi prima creare una partita."))
+        prova_messaggio(_("Devi prima creare una partita."),update=update,bot=context.bot)
         return
 
     # Se non sei il leader della partita non puoi terminarla
-    if not idUtente == partite[f'{chat_id}'].leaderId:
+    if idUtente == partite[f'{chat_id}'].leaderId or idUtente in [user.user.id for user in update.message.chat.get_administrators() if user.can_manage_chat]:
         prova_messaggio(_(
             "{utente} non hai avviato tu la partita! Puoi usare /quit_ows_game al massimo").format(utente=utente),update=update,
                     bot=context.bot)
@@ -489,13 +512,15 @@ def skip_turn(update: Update, context: CallbackContext):
                     bot=context.bot)
         return
 
+    if not partite[f'{chat_id}'].isStarted:
+        prova_messaggio(_("La partita non è stata ancora avviata."),update=update, bot=context.bot)
+
     # Se l'utente non partecipa alla partita non può skippare
     if not str(idUtente) in partite[f'{chat_id}'].partecipanti:
         prova_messaggio(_('Non puoi votare, non sei in partita!'),update=update,
                     bot=context.bot)
         return
 
-    
     if partite[f'{chat_id}'].getVotes() == 0: # 
         mess = prova_messaggio(_('{utente} ha avviato la votazione per skippare il turno di {turno}.\n{voteStatus}/{totalPlayers}').format(utente=utente, turno=partite[f"{chat_id}"].prossimoTurno().nomeUtente, voteStatus=partite[f"{chat_id}"].getVotes(), totalPlayers=partite[f"{chat_id}"].getNumberOfPlayers()),update=update,
                     bot=context.bot)
@@ -552,8 +577,8 @@ def wakeUp(update: Update, context: CallbackContext):
     
     #prova_messaggio(_(f"Sveglia {partite[f'{chat_id}'].prossimoTurno().nomeUtente}, tocca a te!")
     partite[f"{chat_id}"].prossimoTurno().MessaggiDaCancellare.append(update.message)
-    partite[f"{chat_id}"].prossimoTurno().MessaggiDaCancellare.append(prova_messaggio(_("Sveglia {turno}, tocca a te!").format(turno=partite[f'{chat_id}'].prossimoTurno().nomeUtente)),update=update,
-                    bot=context.bot)
+    partite[f"{chat_id}"].prossimoTurno().MessaggiDaCancellare.append(prova_messaggio(_("Sveglia {turno}, tocca a te!").format(turno=partite[f'{chat_id}'].prossimoTurno().nomeUtente),update=update,
+                    bot=context.bot))
     partite[f"{chat_id}"].prossimoTurno().asleep = True
     
 
@@ -568,6 +593,9 @@ def error(update: Update, context: CallbackContext):
 
 
 def lingua(update: Update, context: CallbackContext):
+    prova_messaggio("WiP...",update=update, bot=context.bot)
+    return
+    
     keyboard = [
         [
             InlineKeyboardButton("Italiano", callback_data="Italiano,it"),
@@ -597,6 +625,7 @@ def linguaPremuta(update: Update, context: CallbackContext):
 
     
 def cambiaLingua(id: str, lingua: str):
+    return 
     lingua = lingua.replace('\n','')
 
     lingue_possibli = ["it","en"]
@@ -606,6 +635,7 @@ def cambiaLingua(id: str, lingua: str):
 
     lang = gettext.translation('base',localedir='locales', languages=[lingua])
     lang.install()
+    
     
     global _
     _ = lang.gettext

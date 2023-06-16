@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2022-12-08 11:24+0100\n"
+"POT-Creation-Date: 2023-06-16 19:49+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,17 +17,20 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
+#: .\bot.py:129
 msgid ""
 "Benvenuto nel bot \"One Word Story\". Per giocare aggiungimi in un gruppo e "
 "fai /crea_partita"
 msgstr ""
 
+#: .\bot.py:163
 #, python-brace-format
 msgid ""
 "Hey {utente}, non vorrai mica giocare da solo? Usa questo comando in un "
 "gruppo"
 msgstr ""
 
+#: .\bot.py:171
 #, python-brace-format
 msgid ""
 "{utente} ha creato una partita. Entra con /join_ows_game.\n"
@@ -36,30 +39,38 @@ msgid ""
 "- {utente}"
 msgstr ""
 
+#: .\bot.py:175
 msgid ""
 "Il bot non ha i permessi per cancellare i messaggi, si può giocare comunque, "
 "ma consiglio di darglieli."
 msgstr ""
 
+#: .\bot.py:185
 msgid "Partita già creata. Entra con /join_ows_game"
 msgstr ""
 
+#: .\bot.py:204 .\bot.py:239 .\bot.py:453
 msgid "Non è stata creata nessuna partita. Creane una con /crea_partita"
 msgstr ""
 
+#: .\bot.py:210
 msgid "Partecipi già alla partita!"
 msgstr ""
 
+#: .\bot.py:223
 #, python-brace-format
 msgid "{utente} è entrato nella partita"
 msgstr ""
 
+#: .\bot.py:245
 msgid "Non hai creato tu la partita"
 msgstr ""
 
+#: .\bot.py:251
 msgid "Partita già avviata"
 msgstr ""
 
+#: .\bot.py:260
 #, python-brace-format
 msgid ""
 "{utente} ha avviato la partita. Prenderò una parola a testa da ognuno di voi "
@@ -73,6 +84,7 @@ msgid ""
 "L'ordine dei turni è:\n"
 msgstr ""
 
+#: .\bot.py:264
 #, python-brace-format
 msgid ""
 "{utente} ha avviato la partita. Prenderò una parola a testa da ognuno di voi "
@@ -81,46 +93,56 @@ msgid ""
 "L'ordine dei turni è:\n"
 msgstr ""
 
+#: .\bot.py:296
 #, python-brace-format
 msgid ""
 "Hey {utente}, non puoi modificare un messaggio! La tua parola rimarrà: "
 "{storia}"
 msgstr ""
 
+#: .\bot.py:309
 #, python-brace-format
 msgid "{utente}, non è il tuo turno. Tocca a {turno}"
 msgstr ""
 
+#: .\bot.py:324
 #, python-brace-format
 msgid ""
 "{utente}, devi scrivere una parola sola :P\n"
 "il gioco si chiama \"ONE WORD stories\" per un motivo."
 msgstr ""
 
+#: .\bot.py:339
 #, python-brace-format
 msgid "{utente}, il messaggio è troppo lungo (più di {max_caratteri})"
 msgstr ""
 
+#: .\bot.py:354
 #, python-brace-format
 msgid "{utente} hai già scritto una parola."
 msgstr ""
 
+#: .\bot.py:385 .\bot.py:524
 #, python-brace-format
 msgid ""
 "Tutti i partecipanti hanno scritto una parola. Ora ricominciamo da {turno}"
 msgstr ""
 
+#: .\bot.py:414
 msgid "Devi prima creare una partita."
 msgstr ""
 
+#: .\bot.py:420
 #, python-brace-format
 msgid ""
 "{utente} non hai avviato tu la partita! Puoi usare /quit_ows_game al massimo"
 msgstr ""
 
+#: .\bot.py:426
 msgid "Termino la partita. Ecco la vostra storia:"
 msgstr ""
 
+#: .\bot.py:428
 #, python-brace-format
 msgid ""
 "#storia\n"
@@ -128,12 +150,15 @@ msgid ""
 "{story}"
 msgstr ""
 
+#: .\bot.py:431
 msgid "Termino la partita."
 msgstr ""
 
+#: .\bot.py:459
 msgid "Non sei in partita!"
 msgstr ""
 
+#: .\bot.py:465
 #, python-brace-format
 msgid ""
 "Sei uscito dalla partita con successo.\n"
@@ -142,25 +167,35 @@ msgid ""
 "{remain}"
 msgstr ""
 
+#: .\bot.py:485 .\bot.py:544
 msgid "Devi prima partecipare ad una partita."
 msgstr ""
 
+#: .\bot.py:490
+msgid "La partita non è stata ancora avviata."
+msgstr ""
+
+#: .\bot.py:494
 msgid "Non puoi votare, non sei in partita!"
 msgstr ""
 
+#: .\bot.py:501
 #, python-brace-format
 msgid ""
 "{utente} ha avviato la votazione per skippare il turno di {turno}.\n"
 "{voteStatus}/{totalPlayers}"
 msgstr ""
 
+#: .\bot.py:512
 #, python-brace-format
 msgid "{votes} voti di {totalPlayers}, skip confermato."
 msgstr ""
 
+#: .\bot.py:550
 msgid "Partita non avviata"
 msgstr ""
 
+#: .\bot.py:556
 #, python-brace-format
 msgid "Sveglia {turno}, tocca a te!"
 msgstr ""
