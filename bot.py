@@ -176,15 +176,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):  # /start
 
 
 async def prova_messaggio(messaggio:str, update: Update, bot: ExtBot, parse_mode=ParseMode.HTML, reply_markup=None):
+    
     try: 
-        return await update.message.reply_text(
+        return await update.effective_message.reply_text(
             messaggio, 
             parse_mode=parse_mode,
             reply_markup=reply_markup
         )
     except:
         return await bot.send_message(
-            chat_id = update.message.chat_id,
+            chat_id = update.effective_message.chat_id,
             text = messaggio,
             parse_mode = parse_mode,
             reply_markup=reply_markup
@@ -469,8 +470,7 @@ async def onMessageInGroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await partita.nonsocomechiamarequestavariabile[idUtente].delete()
         partita.nonsocomechiamarequestavariabile.pop(idUtente)
         
-    # TODO DA FARE ANCHE IN SKIP
-    current_jobs = context.job_queue.get_jobs_by_name(f"{idUtente}")
+    current_jobs = context.job_queue.get_jobs_by_name(f"{roba.chat.id} - {idUtente}")
     if current_jobs:
         for job in current_jobs:
             job.schedule_removal()
@@ -494,7 +494,12 @@ async def onMessageInGroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await messaggioDaCancellare.delete()
         return
 
-    context.job_queue.run_once(callback=test, when=50, data=(partita,update),name=f"{partita.prossimoTurno().idUtente}")
+    context.job_queue.run_once(
+        callback=test, 
+        when=50, 
+        data=(partita,update),
+        name=f"{roba.chat.id} - {partita.prossimoTurno().idUtente}"
+    )
     
     partita.nonsocomechiamarequestavariabile[idUtente] = await prova_messaggio(
         _("Tocca a {user}. Ultime 3 parole: {words}").format(
@@ -586,6 +591,11 @@ async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             # Azzero qualsiasi cosa possibile per cancellare la partita
             partite.pop(f'{selected_id}', None)
+            for partecipante in partita.getAllPartecipants():
+                current_jobs = context.job_queue.get_jobs_by_name(f"{roba.chat.id} - {partecipante.idUtente}")
+                if current_jobs:
+                    for job in current_jobs:
+                        job.schedule_removal()
         return # Non continuo
     
     # Se la partita non esiste non puoi terminarla
@@ -607,7 +617,7 @@ async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
     if idUtente != partita.leaderId or not idUtente in [str(k.user.id) for k in utenti_che_possono_cancellare]:
         await prova_messaggio(_(
-            "{utente} non hai avviato tu la partita! Puoi usare /quit_ows_game al massimo").format(utente=utente),
+            "{utente} non hai avviato tu la partita! Puoi usare /quit_ows_game al massimo").format(utente=utente.user.name),
             update=update,
             bot=context.bot
         )
@@ -623,11 +633,11 @@ async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Azzero qualsiasi cosa possibile per cancellare la partita
     
     for partecipante in partita.getAllPartecipants():
-        current_jobs = context.job_queue.get_jobs_by_name(partecipante.idUtente)
+        current_jobs = context.job_queue.get_jobs_by_name(f"{roba.chat.id} - {partecipante.idUtente}")
         if current_jobs:
             for job in current_jobs:
                 job.schedule_removal()
-            
+
     partite.pop(f'{chat_id}', None)
     
 
@@ -761,6 +771,11 @@ async def skip_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
             bot=context.bot
         )
         partita.partecipanti[f"{partita.prossimoTurno().idUtente}"].hasWritten = True
+        
+        current_jobs = context.job_queue.get_jobs_by_name(f"{roba.chat.id} - {idUtente}")
+        if current_jobs:
+            for job in current_jobs:
+                job.schedule_removal()
 
         for partecipante in partite[f"{chat_id}"].getAllPartecipants():
             partecipante.voteSkip = False
