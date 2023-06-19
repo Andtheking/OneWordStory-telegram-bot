@@ -38,6 +38,9 @@ from telegram.constants import (
     ChatMemberStatus
 )
 
+#TODO: Migliorare SKIP
+#TODO: Tempo del timer impostabile
+#TODO: Lunghezza massima storia impostabile
 
 TOKEN = None  # TOKEN DEL BOT
 with open('token.txt', 'r') as f:
@@ -89,7 +92,7 @@ class Partita:
         self.storia: list[Message] = []
         self.skipping: bool = False
         self.nonsocomechiamarequestavariabile: dict[str,Message] = {}
-        self.timer = 150
+        self.timer = 50
 
     def getAllPartecipantsIDs(self) -> list[str]:
         return list(self.partecipanti.keys())
@@ -236,8 +239,6 @@ def gameExists(chat_id: int):
 
 async def join_ows_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global partite
-
-
     roba = update.effective_message
     
     # Assegno tutte le variabili per comodità
@@ -341,7 +342,12 @@ async def avvia_partita(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bot=context.bot
     )
     partita.MessaggioListaPartecipanti = None
-    context.job_queue.run_once(callback=test, when=50, data=(partita,update),name=f"{partita.prossimoTurno().idUtente}")
+    context.job_queue.run_once(
+        callback=test,
+        when=partita.timer,
+        data=(partita,update),
+        name=f"{roba.chat_id} - {partita.prossimoTurno().idUtente}"
+    )
     
 
 async def onMessageInGroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -485,7 +491,11 @@ async def onMessageInGroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for partecipante in partita.getAllPartecipants():
             partecipante.hasWritten = False
         
-        context.job_queue.run_once(callback=test, when=50, data=(partita,update),name=f"{partita.prossimoTurno().idUtente}")
+        context.job_queue.run_once(
+            callback=test, 
+            when=partita.timer, 
+            data=(partita,update),
+            name=f"{roba.chat_id} - {partita.prossimoTurno().idUtente}")
         
         messaggioDaCancellare = await prova_messaggio(
             _('Tutti i partecipanti hanno scritto una parola. Ora ricominciamo da {user}').format(user=partita.prossimoTurno().nomeUtente),
@@ -499,30 +509,30 @@ async def onMessageInGroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.job_queue.run_once(
         callback=test, 
-        when=50, 
+        when=partita.timer, 
         data=(partita,update),
         name=f"{roba.chat.id} - {partita.prossimoTurno().idUtente}"
     )
     
     partita.nonsocomechiamarequestavariabile[idUtente] = await prova_messaggio(
-        _("Tocca a {user}. Ultime 3 parole: {words}").format(
+        _("Tocca a {user}. Ultime 6 parole: {words}").format(
             user=partita.prossimoTurno().nomeUtente,
-            words=partita.ottieniStoria(3)
+            words=partita.ottieniStoria(6)
         ),
         update=update,
         bot=context.bot
     )
     
     
-
+    
 async def test(context: ContextTypes.DEFAULT_TYPE):
     partita: Partita = context.job.data[0]
     update: Update = context.job.data[1]
-    test = partita.getAllPartecipants().index(partita.prossimoTurno())
+    indiceTurnoAttuale = partita.getAllPartecipants().index(partita.prossimoTurno())
     await prova_messaggio(
         _("{user} ha impiegato troppo tempo per inviare una parola, skippo il turno a {next}").format(
             user = partita.prossimoTurno().nomeUtente,
-            next = partita.getAllPartecipants()[(test + 1) % len(partita.getAllPartecipants())].nomeUtente
+            next = partita.getAllPartecipants()[(indiceTurnoAttuale + 1) % len(partita.getAllPartecipants())].nomeUtente
         ),
         update=update,
         bot = context.bot
@@ -541,12 +551,14 @@ async def test(context: ContextTypes.DEFAULT_TYPE):
         
         sleep(3)
         await messaggioDaCancellare.delete()
-        context.job_queue.run_once(callback=test, when=50, data=(partita,update),name=f"{update.effective_message.chat} - {partita.prossimoTurno().idUtente}")
+        context.job_queue.run_once(
+            callback=test, 
+            when=partita.timer, 
+            data=(partita,update),
+            name=f"{update.effective_message.chat.id} - {partita.prossimoTurno().idUtente}")
         return
 
     
-    
-
 async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global partite
 
@@ -611,16 +623,19 @@ async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Se non sei il leader della partita o un admin non puoi terminarla
     utenti_che_possono_cancellare: list[ChatMemberAdministrator | ChatMemberOwner] = []
     
-    for utente in await update.message.chat.get_administrators():
-        utente: ChatMemberAdministrator | ChatMemberOwner
-        if utente is ChatMemberAdministrator and utente.can_delete_messages:
-            utenti_che_possono_cancellare.append(utente)
-        elif utente is ChatMemberOwner:
-            utenti_che_possono_cancellare.append(utente)
-            
-    if idUtente != partita.leaderId or not idUtente in [str(k.user.id) for k in utenti_che_possono_cancellare]:
+    for admin in await update.message.chat.get_administrators():
+        admin: ChatMemberAdministrator | ChatMemberOwner
+        if type(admin) is ChatMemberAdministrator and admin.can_delete_messages:
+            utenti_che_possono_cancellare.append(admin)
+        elif type(admin) is ChatMemberOwner:
+            utenti_che_possono_cancellare.append(admin)
+    
+    # Se non è il leader della partita e non è negli admin del gruppo che hanno il potere di cancellare im essaggi
+    if (idUtente != partita.leaderId) and (not idUtente in [str(k.user.id) for k in utenti_che_possono_cancellare]):
         await prova_messaggio(_(
-            "{utente} non hai avviato tu la partita! Puoi usare /quit_ows_game al massimo").format(utente=utente.user.name),
+            "{utente} non hai avviato tu la partita! Puoi usare /quit_ows_game al massimo").format(
+                utente=utente
+            ),
             update=update,
             bot=context.bot
         )
@@ -685,9 +700,6 @@ async def quit_ows_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update=update,
         bot=context.bot
     )
-    
-    # Nuova lista da aggiornare se qualcuno joina
-    partite[f'{chat_id}'].MessaggioListaPartecipanti = mess
 
 async def skip_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global partite
@@ -788,9 +800,9 @@ async def skip_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 partita.partecipanti[f'{id}'].hasWritten = False
 
             messaggioDaCancellare = await prova_messaggio(
-                _('Tutti i partecipanti hanno scritto una parola. Ora ricominciamo da {turno}.\n\nUltime 3 parole: {words}').format(
+                _('Tutti i partecipanti hanno scritto una parola. Ora ricominciamo da {turno}.\n\nUltime 6 parole: {words}').format(
                     turno=partite[f"{chat_id}"].getAllPartecipants()[0].nomeUtente,
-                    words=partita.ottieniStoria(3)
+                    words=partita.ottieniStoria(6)
                 ),
                 update=update,
                 bot=context.bot
