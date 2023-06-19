@@ -238,7 +238,7 @@ async def join_ows_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global partite
 
 
-    roba = update.message if update.message is not None else update.edited_message
+    roba = update.effective_message
     
     # Assegno tutte le variabili per comodità
     # "utente" fa il controllo se l'username è presente altrimenti usa il nome
@@ -278,11 +278,14 @@ async def join_ows_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text = partita.MessaggioListaPartecipanti.text + f"\n- {utente}"
         )
     except:
-        await prova_messaggio(
-            partita.MessaggioListaPartecipanti.text + f"\n- {utente}",
-            update=update,
-            bot=context.bot
-        )
+        try:
+            await prova_messaggio(
+                partita.MessaggioListaPartecipanti.text + f"\n- {utente}",
+                update=update,
+                bot=context.bot
+            )
+        except:
+            pass
     await prova_messaggio(
         _('{user} è entrato nella partita').format(user=utente),
         update=update,
@@ -538,7 +541,7 @@ async def test(context: ContextTypes.DEFAULT_TYPE):
         
         sleep(3)
         await messaggioDaCancellare.delete()
-        context.job_queue.run_once(callback=test, when=50, data=(partita,update),name=f"{partita.prossimoTurno().idUtente}")
+        context.job_queue.run_once(callback=test, when=50, data=(partita,update),name=f"{update.effective_message.chat} - {partita.prossimoTurno().idUtente}")
         return
 
     
