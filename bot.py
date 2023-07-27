@@ -1,12 +1,9 @@
 import logging # Per loggare (non si usa "print()" ma logger.info())
 
 from string import capwords
-from typing import Dict
-from time import sleep
-import requests
-
 import gettext
 import users
+import jsonpickle, os
 
 
 from telegram.ext import (
@@ -18,7 +15,8 @@ from telegram.ext import (
     CallbackQueryHandler, # Per gestire il click di un bottone o simile
     filters, # Per filtrare gli Handler 
     PicklePersistence, # Per un ConversationHandler, vedi https://gist.github.com/aahnik/6c9dd519c61e718e4da5f0645aa11ada#file-tg_conv_bot-py-L9t
-    ExtBot
+    ExtBot,
+    JobQueue
 )
 
 import telegram
@@ -38,9 +36,26 @@ from telegram.constants import (
     ChatMemberStatus
 )
 
-#TODO: Migliorare SKIP
+#region JSON
+def toJSON(file: str, obj):
+    with open(file,"w",encoding="utf8") as f:
+        f.write(jsonpickle.encode(obj))
+
+def fromJSON(file: str, ifFileEmpty = "[]"):
+    if not os.path.exists(file):
+        open(file,"w",encoding="utf8").close()
+    
+    with open(file,"r",encoding="utf8") as f:
+        text = f.read()
+        thing = jsonpickle.decode(text if text != "" else ifFileEmpty)
+    return thing
+#endregion
+
 #TODO: Tempo del timer impostabile
 #TODO: Lunghezza massima storia impostabile
+#TODO: Lunghezza recap parole impostabile
+#TODO: Modalità con due parole a testa
+#TODO: Lunghezza massima parole impostabile
 
 TOKEN = None  # TOKEN DEL BOT
 with open('token.txt', 'r') as f:
@@ -59,6 +74,8 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 _ = gettext.gettext
+
+groupsConfig = fromJSON("groupsConfig.json")
 
 # Rappresenta un partecipante alla partita:
 #   nomeUtente: Il suo username o nome e cognome
@@ -82,17 +99,21 @@ class Partecipante:
 #   Per tutti i metodi basta leggere il nome del metodo
 #   per getAllPartecipants se metti (True) ti restituisce la lista dei nomi dei partecipanti sotto forma di stringa (con a capo per ogni utente)
 class Partita:
+    SKIP_TMPL = _('{user} ha avviato la votazione per skippare il turno di {turn}.')
+    
     def __init__(self, utente, userId, mess) -> None:
         self.leader: str = utente
         self.leaderId: str = str(userId)
-        self.partecipanti: Dict[str, Partecipante] = {}
+        self.partecipanti: dict[str, Partecipante] = {}
         self.isStarted: bool = False
         self.MessaggioListaPartecipanti: Message = mess
         self.MessaggioVoteSkip: Message = None
         self.storia: list[Message] = []
         self.skipping: bool = False
-        self.nonsocomechiamarequestavariabile: dict[str,Message] = {}
+        self.wakeUpMessages: dict[str,Message] = {}
         self.timer = 50
+        self.skipVotes = 0
+        self.wordHistory = 6
 
     def getAllPartecipantsIDs(self) -> list[str]:
         return list(self.partecipanti.keys())
@@ -118,13 +139,6 @@ class Partita:
         if not self.getAllPartecipants()[0].hasWritten:
             return self.getAllPartecipants()[0]
 
-    def getVotes(self):
-        voti: int = 0
-        for partecipante in self.getAllPartecipants():
-            if partecipante.voteSkip:
-                voti += 1
-        return voti
-    
     def resetVotes(self):
         for partecipante in self.getAllPartecipants():
             partecipante.voteSkip = False
@@ -144,21 +158,27 @@ class Partita:
         for word in self.storia[::-1]:
             if str(word.from_user.id) == str(userId):
                 return word
+        return None
             
-    def timer_working(self):
-        while True:
-            self.timer -= 1
-            sleep(1)
-            
-    def reset_timer(self):
-        self.timer = 150
-            
+    def wordOfWithId(self, userId: str | int, messageId: str | int):
+        userId = str(userId)
+        messageId = str(messageId)
+        
+        for word in self.storia:
+            if str(word.message_id) == messageId:
+                return word
+        return None
+    
+    def resetTurns(self):
+        for user in self.getAllPartecipants():
+            user.hasWritten = False
+        
 
 def formattaMessaggio(text):
     return text[1:]
 
 #        group_id: Partita
-partite: Dict[str, Partita] = {}
+partite: dict[str, Partita] = {}
 
 # #       group_id: storia
 # storie: Dict[str, str] = {}
@@ -223,16 +243,18 @@ async def crea_partita(update: Update, context: ContextTypes.DEFAULT_TYPE):
         partite[f'{chat_id}'] = Partita(utente, idUtente, mess=mess) # Crea la partita con l'utente leader (chi l'ha creata)
         
         partite[f'{chat_id}'].partecipanti[f'{idUtente}'] = Partecipante(utente, idUtente) # Aggiungo il creatore ai partecipanti
-        
-        if (await update.message.chat.get_member(context.bot.id)) != ChatMemberStatus.ADMINISTRATOR:
-            await prova_messaggio(_('Il bot non ha i permessi per cancellare i messaggi, si può giocare comunque, ma consiglio di darglieli.'),update=update,
-                    bot=context.bot)
 
         logging.info(f'{utente}, {idUtente} - Ha creato una partita nel gruppo {update.message.chat.title}')
     else: # Avviso se la partita è già presente nella lista
-        await prova_messaggio(_(
-            'Partita già creata. Entra con /join_ows_game'),update=update,
-                    bot=context.bot)
+        partita = partite[f'{chat_id}']
+        await prova_messaggio(
+            _('{link_1}Partita già creata{link_2}. Entra con /join_ows_game').format(
+                link_1=f'<a href="{partita.MessaggioListaPartecipanti.link[:partita.MessaggioListaPartecipanti.link.rfind("""?""")]}">' if partita.MessaggioListaPartecipanti is not None else "",
+                link_2='</a>' if partita.MessaggioListaPartecipanti is not None else ""
+            ),
+            update = update,
+            bot = context.bot
+        )
 
 def gameExists(chat_id: int):
     return str(chat_id) in partite
@@ -272,23 +294,30 @@ async def join_ows_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     partite[f'{chat_id}'].partecipanti[f'{idUtente}'] = Partecipante(utente, idUtente)
     
     # Modifica il messaggio di creazione della partita per mostrare la lista dei partecipanti al game
-    try:
-        partite[f'{chat_id}'].MessaggioListaPartecipanti = await context.bot.edit_message_text(
-            chat_id = chat_id, 
-            message_id = partita.MessaggioListaPartecipanti.message_id, 
-            text = partita.MessaggioListaPartecipanti.text + f"\n- {utente}"
-        )
-    except:
+
+    if partita.MessaggioListaPartecipanti is not None:
         try:
-            await prova_messaggio(
-                partita.MessaggioListaPartecipanti.text + f"\n- {utente}",
-                update=update,
-                bot=context.bot
+            partite[f'{chat_id}'].MessaggioListaPartecipanti = await context.bot.edit_message_text(
+                chat_id = chat_id, 
+                message_id = partita.MessaggioListaPartecipanti.message_id, 
+                text = partita.MessaggioListaPartecipanti.text + f"\n- {utente}"
             )
         except:
-            pass
+            try:
+                await prova_messaggio(
+                    partita.MessaggioListaPartecipanti.text + f"\n- {utente}",
+                    update=update,
+                    bot=context.bot
+                )
+            except:
+                pass
+    
     await prova_messaggio(
-        _('{user} è entrato nella partita').format(user=utente),
+        _('{user} è entrato nella {link_1}partita{link_2}').format(
+            user=utente,
+            link_1 = f'<a href="{partita.MessaggioListaPartecipanti.link}">' if partita.MessaggioListaPartecipanti is not None else "",
+            link_2 = "</a>" if partita.MessaggioListaPartecipanti is not None else ""
+        ),
         update=update,
         bot=context.bot
     )
@@ -341,7 +370,7 @@ async def avvia_partita(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update=update,
         bot=context.bot
     )
-    partita.MessaggioListaPartecipanti = None
+    
     context.job_queue.run_once(
         callback=test,
         when=partita.timer,
@@ -375,20 +404,22 @@ async def onMessageInGroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     cambiaLingua(idUtente,users.getUserLang(idUtente))
-
-
     
     # Se il messaggio è modificato, non aggiornare la storia
     if update.edited_message != None:
-        await prova_messaggio(
-            _('Hey {user}, non puoi modificare un messaggio! La tua parola rimarrà {word}.').format(
-                user=utente,
-                word=formattaMessaggio(partita.lastWordOf(idUtente).text)
-            ),
-            update=update, 
-            bot=context.bot
-        )
-        return
+        vecchia_parola = partita.wordOfWithId(userId=idUtente,messageId=roba.message_id)
+        if vecchia_parola is not None:
+            await prova_messaggio(
+                _('Hey {user}, non puoi modificare un messaggio! La parola rimarrà {word}.').format(
+                    user=utente,
+                    word=formattaMessaggio(
+                        vecchia_parola.text
+                    )
+                ),
+                update=update, 
+                bot=context.bot
+            )
+            return
 
     messaggio = roba.text 
 
@@ -400,57 +431,33 @@ async def onMessageInGroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Se non è il turno dell'utente avvisa e cancella il messaggio
     if not idUtente == partita.prossimoTurno().idUtente:
-        messaggioDaCancellare = await prova_messaggio(
+        await prova_messaggio(
             _("{utente}, non è il tuo turno. Tocca a {turno}").format(utente=utente, turno=partita.prossimoTurno().nomeUtente),
             update=update,
             bot=context.bot
         )
-        
-        try:
-            await context.bot.delete_message(chat_id, messaggio_id)
-        except:
-            pass
-        
-        sleep(3)
-        await messaggioDaCancellare.delete()
-        return
-    
+      
     
 
     # Se il messaggio contiene uno dei seguenti caratteri avvisa e cancella il messaggio
     if (' ' in messaggio or '_' in messaggio or '-' in messaggio or '+' in messaggio):
-        messaggioDaCancellare = await prova_messaggio(
+        await prova_messaggio(
             _('{utente}, devi scrivere una parola sola :P\nil gioco si chiama "ONE WORD stories" per un motivo.').format(utente=utente),
             update=update,
             bot=context.bot
         )
-        
-        try:
-            await context.bot.delete_message(chat_id, messaggio_id)
-        except:
-            pass
-
-        sleep(3)
-        await messaggioDaCancellare.delete()
         return
 
     max_caratteri = 15
 
     # Se il messaggio è troppo lungo avvia e cancella il messaggio
     if (len(messaggio) > max_caratteri):
-        messaggioDaCancellare = await prova_messaggio(_(
+        await prova_messaggio(_(
             '{user}, il messaggio è troppo lungo (più di {max_length})').format(user=utente, max_length=max_caratteri),
             update=update,
             bot=context.bot
         )
-        try:
-            await context.bot.delete_message(chat_id, messaggio_id)
-        except:
-            pass
-        
-        sleep(3)
-        await context.bot.delete_message(chat_id, messaggioDaCancellare.message_id)
-        
+    
         return
 
     partecipante = partita.partecipanti[idUtente]
@@ -459,30 +466,19 @@ async def onMessageInGroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Se il partecipante ha già scritto avvisa e cancella il messaggio
     if partecipante.hasWritten:
-        messaggioDaCancellare = await prova_messaggio(
+        await prova_messaggio(
             _('{user} hai già scritto una parola.').format(user=utente),
             update=update,
             bot=context.bot
         )
-        
-        # Controllo che il bot possa cancellare i messaggi
-        try:
-            await context.bot.delete_message(chat_id, messaggio_id)
-        except:
-            pass
-        
-        sleep(3)
-        await messaggioDaCancellare.delete()
+       
         return
-
-    if idUtente in partita.nonsocomechiamarequestavariabile:
-        await partita.nonsocomechiamarequestavariabile[idUtente].delete()
-        partita.nonsocomechiamarequestavariabile.pop(idUtente)
         
-    current_jobs = context.job_queue.get_jobs_by_name(f"{roba.chat.id} - {idUtente}")
-    if current_jobs:
-        for job in current_jobs:
-            job.schedule_removal()
+    rimuovi_timer(
+        roba.chat.id,
+        idUtente,
+        context.job_queue
+    )
 
     partita.storia.append(update.effective_message)
     partecipante.hasWritten = True
@@ -490,34 +486,27 @@ async def onMessageInGroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if partita.everyone_has_written():
         for partecipante in partita.getAllPartecipants():
             partecipante.hasWritten = False
-        
-        context.job_queue.run_once(
-            callback=test, 
-            when=partita.timer, 
-            data=(partita,update),
-            name=f"{roba.chat_id} - {partita.prossimoTurno().idUtente}")
-        
-        messaggioDaCancellare = await prova_messaggio(
+      
+        await prova_messaggio(
             _('Tutti i partecipanti hanno scritto una parola. Ora ricominciamo da {user}').format(user=partita.prossimoTurno().nomeUtente),
             update=update,
             bot=context.bot
         )
-        
-        sleep(3)
-        await messaggioDaCancellare.delete()
-        return
 
+      
     context.job_queue.run_once(
         callback=test, 
         when=partita.timer, 
         data=(partita,update),
-        name=f"{roba.chat.id} - {partita.prossimoTurno().idUtente}"
+        name=f"{roba.chat_id} - {partita.prossimoTurno().idUtente}"
     )
     
-    partita.nonsocomechiamarequestavariabile[idUtente] = await prova_messaggio(
-        _("Tocca a {user}. Ultime 6 parole: {words}").format(
+        
+    partita.wakeUpMessages[idUtente] = await prova_messaggio(
+        _("Tocca a {user}. Ultime {nWords} parole: {words}").format(
+            nWords = partita.wordHistory,
             user=partita.prossimoTurno().nomeUtente,
-            words=partita.ottieniStoria(6)
+            words=partita.ottieniStoria(partita.wordHistory)
         ),
         update=update,
         bot=context.bot
@@ -529,13 +518,11 @@ async def test(context: ContextTypes.DEFAULT_TYPE):
     partita: Partita = context.job.data[0]
     update: Update = context.job.data[1]
     indiceTurnoAttuale = partita.getAllPartecipants().index(partita.prossimoTurno())
-    await prova_messaggio(
+    await update.effective_message.chat.send_message(
         _("{user} ha impiegato troppo tempo per inviare una parola, skippo il turno a {next}").format(
             user = partita.prossimoTurno().nomeUtente,
             next = partita.getAllPartecipants()[(indiceTurnoAttuale + 1) % len(partita.getAllPartecipants())].nomeUtente
-        ),
-        update=update,
-        bot = context.bot
+        )
     )
     partita.prossimoTurno().hasWritten = True
     
@@ -543,19 +530,19 @@ async def test(context: ContextTypes.DEFAULT_TYPE):
         for partecipante in partita.getAllPartecipants():
             partecipante.hasWritten = False
         
-        messaggioDaCancellare = await prova_messaggio(
+        await prova_messaggio(
             _('Tutti i partecipanti hanno scritto una parola. Ora ricominciamo da {user}').format(user=partita.prossimoTurno().nomeUtente),
             update=update,
             bot=context.bot
         )
-        
-        sleep(3)
-        await messaggioDaCancellare.delete()
+
         context.job_queue.run_once(
             callback=test, 
             when=partita.timer, 
             data=(partita,update),
-            name=f"{update.effective_message.chat.id} - {partita.prossimoTurno().idUtente}")
+            name=f"{update.effective_message.chat.id} - {partita.prossimoTurno().idUtente}"
+        )
+        
         return
 
     
@@ -605,12 +592,15 @@ async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     bot=context.bot
                 )
             # Azzero qualsiasi cosa possibile per cancellare la partita
-            partite.pop(f'{selected_id}', None)
+            
             for partecipante in partita.getAllPartecipants():
-                current_jobs = context.job_queue.get_jobs_by_name(f"{roba.chat.id} - {partecipante.idUtente}")
-                if current_jobs:
-                    for job in current_jobs:
-                        job.schedule_removal()
+                rimuovi_timer(
+                    roba.chat_id,
+                    idUtente,
+                    context.job_queue
+                )
+                
+            partite.pop(f'{selected_id}', None)
         return # Non continuo
     
     # Se la partita non esiste non puoi terminarla
@@ -651,10 +641,11 @@ async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Azzero qualsiasi cosa possibile per cancellare la partita
     
     for partecipante in partita.getAllPartecipants():
-        current_jobs = context.job_queue.get_jobs_by_name(f"{roba.chat.id} - {partecipante.idUtente}")
-        if current_jobs:
-            for job in current_jobs:
-                job.schedule_removal()
+        rimuovi_timer(
+            roba.chat.id,
+            partecipante.idUtente,
+            context.job_queue
+        )
 
     partite.pop(f'{chat_id}', None)
     
@@ -695,10 +686,17 @@ async def quit_ows_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Se passi tutti i controlli togli l'utente dai partecipanti e ristampa la lista
     partita.partecipanti.pop(idUtente)
-    mess = await prova_messaggio(
+    await prova_messaggio(
         _("Sei uscito dalla partita con successo.\n\nPartecipanti restanti:\n{remain}").format(remain=partita.getAllPartecipantsString()),
         update=update,
         bot=context.bot
+    )
+    
+    # TODO: Fare controllo se quello che quitta sarebbe il turno successivo.
+    rimuovi_timer(
+        roba.chat_id,
+        idUtente,
+        context.job_queue
     )
 
 async def skip_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -750,83 +748,106 @@ async def skip_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
         
 
-    if partita.getVotes() == 0:  
+    if partita.skipVotes == 0:  
         partita.skipping = True
         mess = await prova_messaggio(
-            _('{utente} ha avviato la votazione per skippare il turno di {turn}.\n{voteStatus}/{totalPlayers}').format(
-                utente = utente,
+            (Partita.SKIP_TMPL + ' {voteStatus}/{totalPlayersMinusOne}').format(
+                user = utente,
                 turn = partita.prossimoTurno().nomeUtente, 
-                voteStatus = partita.getVotes(),
-                totalPlayers = partita.getNumberOfPlayers()
+                voteStatus = partita.skipVotes,
+                totalPlayersMinusOne = partita.getNumberOfPlayers() - 1
             ),
             update=update,
             bot=context.bot
         )
         partita.MessaggioVoteSkip = mess
-    
     partita.partecipanti[idUtente].voteSkip = True
-    try:
-        await context.bot.edit_message_text(chat_id = chat_id, message_id = partita.MessaggioVoteSkip.message_id, text = f"{partita.MessaggioVoteSkip.text[0:partita.MessaggioVoteSkip.text.rfind('.')+1]}\n{partita.getVotes()}/{partita.getNumberOfPlayers() - 1}")
-    except:
-        prova_messaggio(
-            text = (f"{partita.MessaggioVoteSkip.text[0:partita.MessaggioVoteSkip.text.rfind('.')+1]}\n" +
-                f"{partita.getVotes()}/{partita.getNumberOfPlayers() - 1}"),
-            update=update,
-            bot=context.bot
+    
+    if partita.MessaggioVoteSkip is not None:
+        await partita.MessaggioVoteSkip.edit_text(
+            text = (Partita.SKIP_TMPL + ' {voteStatus}/{totalPlayersMinusOne}').format(
+                user = utente,
+                turn = partita.prossimoTurno().nomeUtente, 
+                voteStatus = partita.skipVotes,
+                totalPlayersMinusOne = partita.getNumberOfPlayers() - 1
+            )
         )
+    
+    await prova_messaggio(
+        text = (_("{user} ha votato per lo skip.") + ' {voteStatus}/{totalPlayersMinusOne}').format(
+            user=roba.from_user.name,
+            voteStatus=partita.skipVotes,
+            totalPlayersMinusOne=partita.getNumberOfPlayers() - 1
+        ),
+        update=update,
+        bot=context.bot
+    )
 
-    if partita.getVotes() >= partita.getNumberOfPlayers() - 1:
-        voti_attuali = partite[f"{chat_id}"].getVotes()
-        player_totali = partite[f"{chat_id}"].getNumberOfPlayers()
+    if partita.skipVotes >= partita.getNumberOfPlayers() - 1:
+        voti_attuali = partita.skipVotes
+        player_totali = partita.getNumberOfPlayers()
         await prova_messaggio(
-            _('{votes} voti di {totalPlayers}, skip confermato.').format(
-                votes=voti_attuali,totalPlayers=player_totali
+            _('{voteStatus} voti di {totalPlayersMinusOne}, skip confermato.').format(
+                voteStatus=voti_attuali,
+                totalPlayersMinusOne= player_totali - 1
             ),
             update=update,
             bot=context.bot
         )
         partita.partecipanti[f"{partita.prossimoTurno().idUtente}"].hasWritten = True
-        
-        current_jobs = context.job_queue.get_jobs_by_name(f"{roba.chat.id} - {idUtente}")
-        if current_jobs:
-            for job in current_jobs:
-                job.schedule_removal()
 
-        for partecipante in partite[f"{chat_id}"].getAllPartecipants():
+        rimuovi_timer(
+            roba.chat.id,
+            idUtente,
+            context.job_queue
+        )
+
+        for partecipante in partita.getAllPartecipants():
             partecipante.voteSkip = False
         
         if partita.everyone_has_written():
-            for id in partita.getAllPartecipantsIDs():
-                partita.partecipanti[f'{id}'].hasWritten = False
-
-            messaggioDaCancellare = await prova_messaggio(
-                _('Tutti i partecipanti hanno scritto una parola. Ora ricominciamo da {turno}.\n\nUltime 6 parole: {words}').format(
-                    turno=partite[f"{chat_id}"].getAllPartecipants()[0].nomeUtente,
-                    words=partita.ottieniStoria(6)
+            partita.resetTurns()
+            
+            await prova_messaggio(
+                _('Tutti i partecipanti hanno scritto una parola. Ora ricominciamo da {turno}.\n\nUltime {nWords} parole: {words}').format(
+                    nWords=partita.wordHistory,
+                    turno=partita.getAllPartecipants()[0].nomeUtente,
+                    words=partita.ottieniStoria(partita.wordHistory)
                 ),
                 update=update,
                 bot=context.bot
             )
-            sleep(3)
-            await context.bot.delete_message(chat_id, messaggioDaCancellare.message_id)
 
+def rimuovi_timer(chatId,idUtente, job_queue: JobQueue):
+    chatId = str(chatId)
+    idUtente = str(idUtente)
+    
+    current_jobs = job_queue.get_jobs_by_name(f"{chatId} - {idUtente}")
+    if current_jobs:
+        for job in current_jobs:
+            job.schedule_removal()
 
 async def wakeUp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global partite
 
     # Solito copia incolla
-    utente = ('@' + update.message.from_user.username) if update.message.from_user.username != None else update.message.from_user.full_name
-    idUtente = update.message.from_user.id
-    chat_id = update.message.chat.id
-    messaggio = update.message.text
-    messaggio_id = update.message.message_id
+    roba = update.effective_message
+        
+    utente = roba.from_user.name
+    idUtente = str(roba.from_user.id)
+    chat_id = roba.chat.id
+    messaggio = roba.text
+    messaggio_id = roba.message_id
 
     cambiaLingua(str(idUtente),users.getUserLang(str(idUtente)))
 
     # Se la partita non esiste
     if not f'{chat_id}' in partite:
-        await prova_messaggio(_("Devi prima partecipare ad una partita."),update=update,
-                    bot=context.bot)
+        await prova_messaggio(
+            _("Devi prima partecipare ad una partita."),
+            update=update,
+            bot=context.bot
+        )
         return
 
     # Se la partita è avviata
@@ -834,24 +855,29 @@ async def wakeUp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await prova_messaggio(_("Partita non avviata"),update=update,
                     bot=context.bot)
         return
-    
-    await prova_messaggio(_("Sveglia {turno}, tocca a te!").format(turno=partite[f'{chat_id}'].prossimoTurno().nomeUtente),update=update,bot=context.bot)
-    
+
+    await prova_messaggio(
+        _("Sveglia {turn}, tocca a te!").format(
+            turn=partite[f'{chat_id}'].prossimoTurno().nomeUtente
+        ),
+        update=update,bot=context.bot
+    )
+
 
 # Segnala quando il bot crasha, con motivo del crash
 async def error(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.warning('Update "%s" caused error "%s"', update, context.error)
     await context.bot.send_message(ID_CANALE_LOG, text=f'{context.bot.name}\nUpdate "{update}" caused error "{context.error}')
 
-
+# TODO: Guardarci meglio, aggiustare un po'
 async def lingua(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await prova_messaggio("To be translated...",update=update, bot=context.bot)
+    await prova_messaggio("To be translated...\n\nWanna translate the bot in your language? Ask @Andtheking!",update=update, bot=context.bot)
     return
     
     keyboard = [
         [
-            InlineKeyboardButton("Italiano", callback_data="Italiano,it"),
-            InlineKeyboardButton("English", callback_data="English,en"),
+            InlineKeyboardButton("Italiano", callback_data="language:Italiano,it"),
+            InlineKeyboardButton("English", callback_data="language:English,en"),
         ]
     ]
 
@@ -864,7 +890,7 @@ async def linguaPremuta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    await query.edit_message_text(text=f"Selected option: {query.data.split(',')[0]}")
+    await query.edit_message_text(text=f"Chosen language: {query.data.split(',')[0]}")
     
     id = str(query.from_user.id)
     
@@ -892,6 +918,62 @@ def cambiaLingua(id: str, lingua: str):
     global _
     _ = lang.gettext
 
+async def config(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    
+    message = update.effective_message
+    
+    if message.from_user.id != 245996916:
+        try:
+            message.reply_text("Work in progress")
+        except:
+            message.chat.send_message("Work in progress")
+            
+        return 
+
+    chat_id = message.chat_id
+    
+    if chat_id > 0:
+        message.reply_text("Usa questo comando in un gruppo in cui sei amministratore.")
+        return
+    
+    utenti_ammessi: list[User] = []
+    for admin in await update.message.chat.get_administrators():
+        admin: ChatMemberAdministrator | ChatMemberOwner
+        if type(admin) is ChatMemberAdministrator and admin.can_change_info:
+            utenti_ammessi.append(admin.user)
+        elif type(admin) is ChatMemberOwner:
+            utenti_ammessi.append(admin.user)
+    
+    if message.from_user.id not in [u.id for u in utenti_ammessi]:
+        message.reply_text("Non hai il permesso di modificare le informazioni del gruppo.")
+        return
+   
+    keyboard = [
+        [
+            InlineKeyboardButton(_("Attesa per skip"), callback_data="config:attesa_skip"),
+            InlineKeyboardButton(_("Numero parole di recap"), callback_data="config:parole_recap"),
+        ],
+        [
+            InlineKeyboardButton(_("Max parole partita"), callback_data="config:max_parole")
+        ],
+    ]
+    
+    await prova_messaggio(
+        "Ecco le impostazioni delle partite in questo gruppo",
+        update,
+        context.bot,
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    
+
+
+async def config_after(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    
+    await query.answer("Work In Progress",show_alert=True)
+    
+    pass
 
 def main():
     # Avvia il bot
@@ -910,8 +992,11 @@ def main():
     application.add_handler(CommandHandler("skip_turn",skip_turn))
     application.add_handler(CommandHandler("wakeUp",wakeUp))
     
+    application.add_handler(CommandHandler("config",config))
+    application.add_handler(CallbackQueryHandler(config_after, pattern="config"))
+    
     application.add_handler(CommandHandler("changeLanguage",lingua))
-    application.add_handler(CallbackQueryHandler(linguaPremuta))
+    application.add_handler(CallbackQueryHandler(linguaPremuta, pattern="language"))
 
     # Legge i messaggi dei gruppi e supergruppi ma non i comandi, per permettere /end_game e /quit_ows_game
     application.add_handler( 
