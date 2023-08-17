@@ -2,6 +2,7 @@ import logging # Per loggare (non si usa "print()" ma logger.info())
 
 from string import capwords
 import gettext
+import string
 import users
 import jsonpickle, os
 
@@ -101,7 +102,7 @@ class Partecipante:
 class Partita:
     SKIP_TMPL = _('{user} ha avviato la votazione per skippare il turno di {turn}.')
     
-    def __init__(self, utente, userId, mess) -> None:
+    def __init__(self, utente, userId, groupId, mess) -> None:
         self.leader: str = utente
         self.leaderId: str = str(userId)
         self.partecipanti: dict[str, Partecipante] = {}
@@ -111,9 +112,16 @@ class Partita:
         self.storia: list[Message] = []
         self.skipping: bool = False
         self.wakeUpMessages: dict[str,Message] = {}
-        self.timer = 50
+        self.groupId = groupId
+        self.timer = groupsConfig[groupId]['skiptime']
         self.skipVotes = 0
-        self.wordHistory = 6
+        self.wordHistory = groupsConfig[groupId]['wordHistory']
+        self.maxWords = groupsConfig[groupId]['maxWords']
+        
+    def addWord(self, word: Message):
+        self.storia.append(word)
+        
+        pass
 
     def getAllPartecipantsIDs(self) -> list[str]:
         return list(self.partecipanti.keys())
@@ -128,11 +136,14 @@ class Partita:
         listaStringa = ''
         
         for partecipante in self.getAllPartecipants():
-            listaStringa += '- ' + partecipante.nomeUtente + '\n'
+            if partecipante != self.aChiTocca():
+                listaStringa += '- ' + partecipante.nomeUtente + '\n'
+            else:
+                listaStringa += '-→ ' + partecipante.nomeUtente + '\n'
         
         return listaStringa
 
-    def prossimoTurno(self) -> Partecipante:
+    def aChiTocca(self) -> Partecipante:
         for partecipante in self.getAllPartecipantsIDs():
             if not self.partecipanti[partecipante].hasWritten:
                 return self.partecipanti[partecipante]
@@ -240,7 +251,7 @@ async def crea_partita(update: Update, context: ContextTypes.DEFAULT_TYPE):
             '{utente} ha creato una partita. Entra con /join_ows_game.\n\nPartecipanti:\n- {utente}').format(utente=utente),update=update,
                     bot=context.bot)
         
-        partite[f'{chat_id}'] = Partita(utente, idUtente, mess=mess) # Crea la partita con l'utente leader (chi l'ha creata)
+        partite[f'{chat_id}'] = Partita(utente, idUtente,groupId=roba.chat_id, mess=mess) # Crea la partita con l'utente leader (chi l'ha creata)
         
         partite[f'{chat_id}'].partecipanti[f'{idUtente}'] = Partecipante(utente, idUtente) # Aggiungo il creatore ai partecipanti
 
@@ -375,7 +386,7 @@ async def avvia_partita(update: Update, context: ContextTypes.DEFAULT_TYPE):
         callback=test,
         when=partita.timer,
         data=(partita,update),
-        name=f"{roba.chat_id} - {partita.prossimoTurno().idUtente}"
+        name=f"{roba.chat_id} - {partita.aChiTocca().idUtente}"
     )
     
 
@@ -430,9 +441,9 @@ async def onMessageInGroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     messaggio = formattaMessaggio(messaggio)
     
     # Se non è il turno dell'utente avvisa e cancella il messaggio
-    if not idUtente == partita.prossimoTurno().idUtente:
+    if not idUtente == partita.aChiTocca().idUtente:
         await prova_messaggio(
-            _("{utente}, non è il tuo turno. Tocca a {turno}").format(utente=utente, turno=partita.prossimoTurno().nomeUtente),
+            _("{utente}, non è il tuo turno. Tocca a {turno}").format(utente=utente, turno=partita.aChiTocca().nomeUtente),
             update=update,
             bot=context.bot
         )
@@ -480,15 +491,18 @@ async def onMessageInGroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.job_queue
     )
 
-    partita.storia.append(update.effective_message)
+    partita.addWord(update.effective_message)
     partecipante.hasWritten = True
+    if partita.skipVotes > 0:
+        for partecipante in partita.partecipanti.values():
+            partecipante.voteSkip = False
 
     if partita.everyone_has_written():
         for partecipante in partita.getAllPartecipants():
             partecipante.hasWritten = False
       
         await prova_messaggio(
-            _('Tutti i partecipanti hanno scritto una parola. Ora ricominciamo da {user}').format(user=partita.prossimoTurno().nomeUtente),
+            _('Tutti i partecipanti hanno scritto una parola. Ora ricominciamo da {user}').format(user=partita.aChiTocca().nomeUtente),
             update=update,
             bot=context.bot
         )
@@ -498,14 +512,14 @@ async def onMessageInGroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         callback=test, 
         when=partita.timer, 
         data=(partita,update),
-        name=f"{roba.chat_id} - {partita.prossimoTurno().idUtente}"
+        name=f"{roba.chat_id} - {partita.aChiTocca().idUtente}"
     )
     
         
     partita.wakeUpMessages[idUtente] = await prova_messaggio(
         _("Tocca a {user}. Ultime {nWords} parole: {words}").format(
             nWords = partita.wordHistory,
-            user=partita.prossimoTurno().nomeUtente,
+            user=partita.aChiTocca().nomeUtente,
             words=partita.ottieniStoria(partita.wordHistory)
         ),
         update=update,
@@ -517,21 +531,21 @@ async def onMessageInGroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def test(context: ContextTypes.DEFAULT_TYPE):
     partita: Partita = context.job.data[0]
     update: Update = context.job.data[1]
-    indiceTurnoAttuale = partita.getAllPartecipants().index(partita.prossimoTurno())
+    indiceTurnoAttuale = partita.getAllPartecipants().index(partita.aChiTocca())
     await update.effective_message.chat.send_message(
         _("{user} ha impiegato troppo tempo per inviare una parola, skippo il turno a {next}").format(
-            user = partita.prossimoTurno().nomeUtente,
+            user = partita.aChiTocca().nomeUtente,
             next = partita.getAllPartecipants()[(indiceTurnoAttuale + 1) % len(partita.getAllPartecipants())].nomeUtente
         )
     )
-    partita.prossimoTurno().hasWritten = True
+    partita.aChiTocca().hasWritten = True
     
     if partita.everyone_has_written():
         for partecipante in partita.getAllPartecipants():
             partecipante.hasWritten = False
         
         await prova_messaggio(
-            _('Tutti i partecipanti hanno scritto una parola. Ora ricominciamo da {user}').format(user=partita.prossimoTurno().nomeUtente),
+            _('Tutti i partecipanti hanno scritto una parola. Ora ricominciamo da {user}').format(user=partita.aChiTocca().nomeUtente),
             update=update,
             bot=context.bot
         )
@@ -540,7 +554,7 @@ async def test(context: ContextTypes.DEFAULT_TYPE):
             callback=test, 
             when=partita.timer, 
             data=(partita,update),
-            name=f"{update.effective_message.chat.id} - {partita.prossimoTurno().idUtente}"
+            name=f"{update.effective_message.chat.id} - {partita.aChiTocca().idUtente}"
         )
         
         return
@@ -686,18 +700,19 @@ async def quit_ows_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Se passi tutti i controlli togli l'utente dai partecipanti e ristampa la lista
     partita.partecipanti.pop(idUtente)
-    await prova_messaggio(
-        _("Sei uscito dalla partita con successo.\n\nPartecipanti restanti:\n{remain}").format(remain=partita.getAllPartecipantsString()),
-        update=update,
-        bot=context.bot
-    )
     
-    # TODO: Fare controllo se quello che quitta sarebbe il turno successivo.
     rimuovi_timer(
         roba.chat_id,
         idUtente,
         context.job_queue
     )
+    
+    await prova_messaggio(
+        _(f'{update.effective_message.from_user.name}, ' + "sei uscito dalla partita con successo.\n\nPartecipanti restanti:\n{remain}").format(remain=partita.getAllPartecipantsString()),
+        update=update,
+        bot=context.bot
+    )
+    
 
 async def skip_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global partite
@@ -739,7 +754,7 @@ async def skip_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    if idUtente == partita.prossimoTurno().idUtente:
+    if idUtente == partita.aChiTocca().idUtente:
         await prova_messaggio(
             _('Non puoi votare per skippare il tuo stesso turno!'),
             update=update,
@@ -753,7 +768,7 @@ async def skip_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         mess = await prova_messaggio(
             (Partita.SKIP_TMPL + ' {voteStatus}/{totalPlayersMinusOne}').format(
                 user = utente,
-                turn = partita.prossimoTurno().nomeUtente, 
+                turn = partita.aChiTocca().nomeUtente, 
                 voteStatus = partita.skipVotes,
                 totalPlayersMinusOne = partita.getNumberOfPlayers() - 1
             ),
@@ -767,7 +782,7 @@ async def skip_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await partita.MessaggioVoteSkip.edit_text(
             text = (Partita.SKIP_TMPL + ' {voteStatus}/{totalPlayersMinusOne}').format(
                 user = utente,
-                turn = partita.prossimoTurno().nomeUtente, 
+                turn = partita.aChiTocca().nomeUtente, 
                 voteStatus = partita.skipVotes,
                 totalPlayersMinusOne = partita.getNumberOfPlayers() - 1
             )
@@ -788,13 +803,13 @@ async def skip_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         player_totali = partita.getNumberOfPlayers()
         await prova_messaggio(
             _('{voteStatus} voti di {totalPlayersMinusOne}, skip confermato.').format(
-                voteStatus=voti_attuali,
-                totalPlayersMinusOne= player_totali - 1
+                voteStatus = voti_attuali,
+                totalPlayersMinusOne = player_totali - 1
             ),
             update=update,
             bot=context.bot
         )
-        partita.partecipanti[f"{partita.prossimoTurno().idUtente}"].hasWritten = True
+        partita.partecipanti[f"{partita.aChiTocca().idUtente}"].hasWritten = True
 
         rimuovi_timer(
             roba.chat.id,
@@ -858,7 +873,7 @@ async def wakeUp(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await prova_messaggio(
         _("Sveglia {turn}, tocca a te!").format(
-            turn=partite[f'{chat_id}'].prossimoTurno().nomeUtente
+            turn=partite[f'{chat_id}'].aChiTocca().nomeUtente
         ),
         update=update,bot=context.bot
     )
@@ -887,6 +902,7 @@ async def lingua(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     bot=context.bot)
 
 async def linguaPremuta(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # TODO: RENDERE ALMENO "CARINO"
     query = update.callback_query
     await query.answer()
 
@@ -918,22 +934,32 @@ def cambiaLingua(id: str, lingua: str):
     global _
     _ = lang.gettext
 
+CONFIG_KEYBOARD = [
+        [
+            InlineKeyboardButton(_("Attesa per skip"), callback_data="config:attesa_skip"),
+            InlineKeyboardButton(_("Numero parole di recap"), callback_data="config:parole_recap"),
+        ],
+        [
+            InlineKeyboardButton(_("Max parole partita"), callback_data="config:max_parole")
+        ],
+    ]
+
 async def config(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     message = update.effective_message
     
     if message.from_user.id != 245996916:
         try:
-            message.reply_text("Work in progress")
+            await message.reply_text("Work in progress")
         except:
-            message.chat.send_message("Work in progress")
+            await message.chat.send_message("Work in progress")
             
         return 
 
     chat_id = message.chat_id
     
     if chat_id > 0:
-        message.reply_text("Usa questo comando in un gruppo in cui sei amministratore.")
+        await message.reply_text(_("Usa questo comando in un gruppo in cui hai il permesso di modificare le informazioni del gruppo."))
         return
     
     utenti_ammessi: list[User] = []
@@ -945,35 +971,94 @@ async def config(update: Update, context: ContextTypes.DEFAULT_TYPE):
             utenti_ammessi.append(admin.user)
     
     if message.from_user.id not in [u.id for u in utenti_ammessi]:
-        message.reply_text("Non hai il permesso di modificare le informazioni del gruppo.")
+        await prova_messaggio(
+            _("Non hai il permesso di modificare le informazioni del gruppo, quindi neanche le impostazioni di questo bot."),
+            update=update,
+            bot=context.bot
+            )
         return
-   
-    keyboard = [
-        [
-            InlineKeyboardButton(_("Attesa per skip"), callback_data="config:attesa_skip"),
-            InlineKeyboardButton(_("Numero parole di recap"), callback_data="config:parole_recap"),
-        ],
-        [
-            InlineKeyboardButton(_("Max parole partita"), callback_data="config:max_parole")
-        ],
-    ]
     
-    await prova_messaggio(
-        "Ecco le impostazioni delle partite in questo gruppo",
-        update,
-        context.bot,
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(keyboard)
+    try:
+        await context.bot.send_message(
+            update.message.from_user.id,
+            _('Ecco le impostazioni delle partite nel gruppo {link}').format(link=f'<a href="{message.chat.link}">{message.chat.effective_name}</a>'),
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(CONFIG_KEYBOARD)
+        )
+        await prova_messaggio(
+            messaggio=_("Vai in privato per le impostazioni del gruppo!"),
+            update=update,
+            bot=context.bot,
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Apri chat",url=context.bot.link)]])
+        )
+        context.user_data['group_chat'] = message.chat
+        
+    except:
+        await prova_messaggio(
+            _('Devi prima avviare il bot in privato!'),
+            update=update,
+            bot=context.bot,
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(_('Avviami in privato!'),url=context.bot.link)]])
+        )
+    
+async def config_skiptime(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Teoricamente qui siamo in chat privata per forza
+    
+    query = update.callback_query
+    
+    await context.bot.send_message(
+        chat_id=query.message.chat_id,
+        text=_("Inviami ora in secondi quanto tempo devo aspettare prima di saltare un turno per inattività. Valore attuale: {value}").format(value = groupsConfig[context.user_data['group_chat'].id] if context.user_data['group_chat'].id in groupsConfig else "NONE") # TODO: Riguardare questo punto
     )
     
+    await query.answer()
+    return 1    
 
+async def configSave_skiptime(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    mex = update.effective_message
+    txt = mex.text.strip()
+    
+    if not txt.isnumeric():
+        update.effective_message.reply_text(_('Il messaggio deve essere solo un numero (esempio: "30") e rappresenterà il numero di secondi che aspetterò prima di skippare un turno. Riprova o annulla con /cancel.'))
+        return 
+    
+    groupsConfig[context.user_data['group_chat'].id]['skiptime'] = int(txt)
+    update.effective_message.reply_text(_("Tempo di inattività aggiornato a {newValue}."))
+    return ConversationHandler.END
 
-async def config_after(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def config_recapwords(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     
     await query.answer("Work In Progress",show_alert=True)
     
     pass
+
+async def configSave_recapwords(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    pass
+
+async def config_maxwords(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    
+    await query.answer("Work In Progress",show_alert=True)
+    
+    pass
+
+async def configSave_maxwords(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    pass
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.bot.send_message(chat_id=update.effective_message.chat_id, text="Azione cancellata.")
+    return ConversationHandler.END
+
+async def onJoin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    for member in update.message.new_chat_members:
+        if member.username == context.bot.username:
+            if not update.message.chat_id in groupsConfig:
+                groupsConfig[update.message.chat_id] = fromJSON("defaultConfig.json")
+                toJSON("groupsConfig.json",groupsConfig)
+            else:
+                await context.bot.send_message(update.message.chat_id, "Ciao! Questo gruppo aveva già una configurazione salvata in passato, utilizzerò quella.")
 
 def main():
     # Avvia il bot
@@ -984,19 +1069,37 @@ def main():
     application = Application.builder().token(TOKEN).build() # Se si vuole usare la PicklePersistance bisogna aggiungere dopo .token(TOKEN) anche .persistance(OGGETTO_PP)
 
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("crea_partita", crea_partita))
+    application.add_handler(CommandHandler("new_ows_game", crea_partita))
     application.add_handler(CommandHandler("join_ows_game", join_ows_game))
-    application.add_handler(CommandHandler("avvia_partita", avvia_partita))
-    application.add_handler(CommandHandler("end_game", end_game))
+    application.add_handler(CommandHandler("start_ows_game", avvia_partita))
+    application.add_handler(CommandHandler("end_ows_game", end_game))
     application.add_handler(CommandHandler("quit_ows_game", quit_ows_game))
-    application.add_handler(CommandHandler("skip_turn",skip_turn))
-    application.add_handler(CommandHandler("wakeUp",wakeUp))
+    application.add_handler(CommandHandler("skip_ows_turn",skip_turn))
+    application.add_handler(CommandHandler("wakeUp_ows",wakeUp))
     
-    application.add_handler(CommandHandler("config",config))
-    application.add_handler(CallbackQueryHandler(config_after, pattern="config"))
+    application.add_handler(CommandHandler("config_ows",config))
     
-    application.add_handler(CommandHandler("changeLanguage",lingua))
+    application.add_handler(
+        ConversationHandler(
+            entry_points=[CallbackQueryHandler(config_skiptime, pattern="config:attesa_skip")],
+            states={
+                1: [MessageHandler(~filters.COMMAND, configSave_skiptime)]
+            },
+            fallbacks=[CommandHandler('cancel',cancel)]
+        )
+    )
+    
+    application.add_handler(CallbackQueryHandler(config_recapwords, pattern="config:parole_recap"))
+    application.add_handler(CallbackQueryHandler(config_maxwords, pattern="config:max_parole"))
+    
+    application.add_handler(CommandHandler("changeLanguage_ows",lingua))
     application.add_handler(CallbackQueryHandler(linguaPremuta, pattern="language"))
+
+    application.add_handler(
+        MessageHandler(
+            filters.StatusUpdate.NEW_CHAT_MEMBERS, callback=onJoin
+        )
+    )
 
     # Legge i messaggi dei gruppi e supergruppi ma non i comandi, per permettere /end_game e /quit_ows_game
     application.add_handler( 
@@ -1005,6 +1108,7 @@ def main():
             filters.TEXT &
             ~filters.COMMAND, onMessageInGroup, block=False)
         ) 
+    
 
     # In caso di errore vai nel metodo "error"
     application.add_error_handler(error)
