@@ -22,6 +22,7 @@ from telegram.ext import (
 
 import telegram
 from telegram import (
+    Chat,
     ChatMemberAdministrator,
     ChatMemberOwner,
     Update, # È il tipo che usiamo nei parametri dei metodi
@@ -52,9 +53,9 @@ def fromJSON(file: str, ifFileEmpty = "[]"):
     return thing
 #endregion
 
-#TODO: Tempo del timer impostabile
+#TODO: ✔ Tempo del timer impostabile
+#TODO: ... Lunghezza recap parole impostabile
 #TODO: Lunghezza massima storia impostabile
-#TODO: Lunghezza recap parole impostabile
 #TODO: Modalità con due parole a testa
 #TODO: Lunghezza massima parole impostabile
 
@@ -113,10 +114,21 @@ class Partita:
         self.skipping: bool = False
         self.wakeUpMessages: dict[str,Message] = {}
         self.groupId = groupId
-        self.timer = groupsConfig[groupId]['skiptime']
         self.skipVotes = 0
-        self.wordHistory = groupsConfig[groupId]['wordHistory']
-        self.maxWords = groupsConfig[groupId]['maxWords']
+
+        self.loadConfig()
+        
+        
+    def loadConfig(self):
+        if not str(self.groupId) in groupsConfig:
+            groupsConfig[self.groupId] = fromJSON("defaultConfig.json")
+            toJSON("groupsConfig.json",groupsConfig)
+        
+        groupConfig = fromJSON("groupsConfig.json")[str(self.groupId)]
+        
+        self.timer: int = groupConfig['skiptime']
+        self.wordHistory: int = groupConfig['wordHistory']
+        self.maxWords: int = groupConfig['maxWords']
         
     def addWord(self, word: Message):
         self.storia.append(word)
@@ -155,8 +167,12 @@ class Partita:
             partecipante.voteSkip = False
     
     def ottieniStoria(self, parole=-1):
-        if parole <= 0:
+        if parole < -1:
+            raise Exception("No valori negativi")
+        elif parole == -1:
             return " ".join([formattaMessaggio(k.text) for k in self.storia])
+        elif parole == 0:
+            return ""
         return " ".join([formattaMessaggio(k.text) for k in self.storia[parole*-1:]])
     
     def everyone_has_written(self):
@@ -497,6 +513,19 @@ async def onMessageInGroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for partecipante in partita.partecipanti.values():
             partecipante.voteSkip = False
 
+    if len(partita.storia) == partita.maxWords:
+        await roba.chat.send_message(
+            "Avete raggiunto le " + str(partita.maxWords) + " parole."
+        )
+        await termina_partita(
+            update=update,
+            context=context,
+            roba=roba,
+            partita=partita,
+            chat_id=chat_id
+        )
+        return
+
     if partita.everyone_has_written():
         for partecipante in partita.getAllPartecipants():
             partecipante.hasWritten = False
@@ -592,29 +621,29 @@ async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Se la storia non è vuota la stampi, altrimenti termini la partita e basta
             if (len(partita.storia) > 0):
-                await context.bot.send_message(chat_id=selected_id,text=_("Partita terminata forzatamente da un admin del bot. Ecco la vostra storia:"))
-                await context.bot.send_message(chat_id=selected_id,text=_("#storia\n\n{story}").format(story=capwords(partita.ottieniStoria(), '. ').replace(' .', '.').replace(' ,', ',')))
+                await context.bot.send_message(chat_id=chat_id,text=_("Partita terminata forzatamente da un admin del bot. Ecco la vostra storia:"))
+                await context.bot.send_message(chat_id=chat_id,text=_("#storia\n\n{story}").format(story=capwords(partita.ottieniStoria(), '. ').replace(' .', '.').replace(' ,', ',')))
             else:
-                await context.bot.send_message(chat_id=selected_id,text=_("Partita terminata forzatamente da un admin del bot."))
-            
-            if selected_id != str(roba.chat_id):
+                await context.bot.send_message(chat_id=chat_id,text=_("Partita terminata forzatamente da un admin del bot."))
+                    
+            if chat_id != str(roba.chat_id):
                 prova_messaggio(
-                    _("Partita terminata con successo in {group_name}").format(
-                        group_name = (await context.bot.get_chat(selected_id)).effective_name
-                    ),
-                    update=update,
-                    bot=context.bot
-                )
-            # Azzero qualsiasi cosa possibile per cancellare la partita
-            
+                            _("Partita terminata con successo in {group_name}").format(
+                                group_name = (await context.bot.get_chat(chat_id)).effective_name
+                            ),
+                            update=update,
+                            bot=context.bot
+                        )
+                    # Azzero qualsiasi cosa possibile per cancellare la partita
+                    
             for partecipante in partita.getAllPartecipants():
                 rimuovi_timer(
-                    roba.chat_id,
-                    idUtente,
-                    context.job_queue
-                )
-                
-            partite.pop(f'{selected_id}', None)
+                            roba.chat_id,
+                            idUtente,
+                            context.job_queue
+                        )
+                        
+            partite.pop(f'{chat_id}', None)
         return # Non continuo
     
     # Se la partita non esiste non puoi terminarla
@@ -645,6 +674,25 @@ async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    # Se la storia non è vuota la stampi, altrimenti termini la partita e basta
+    if (len(partita.storia) > 0):
+        await prova_messaggio(_("Termino la partita. Ecco la vostra storia:"),update=update,bot=context.bot)
+        await prova_messaggio(_("#storia\n\n{story}").format(story=capwords(partita.ottieniStoria(), '. ').replace(' .', '.').replace(' ,', ',')),update=update,bot=context.bot)
+    else:
+        await prova_messaggio(_("Termino la partita."),update=update,bot=context.bot)
+
+    # Azzero qualsiasi cosa possibile per cancellare la partita
+    
+    for partecipante in partita.getAllPartecipants():
+        rimuovi_timer(
+            roba.chat.id,
+            partecipante.idUtente,
+            context.job_queue
+        )
+
+    partite.pop(f'{chat_id}', None)
+
+async def termina_partita(update: Update, context: ContextTypes.DEFAULT_TYPE, roba: Message, partita: Partita, chat_id: str | int):
     # Se la storia non è vuota la stampi, altrimenti termini la partita e basta
     if (len(partita.storia) > 0):
         await prova_messaggio(_("Termino la partita. Ecco la vostra storia:"),update=update,bot=context.bot)
@@ -950,9 +998,9 @@ async def config(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if message.from_user.id != 245996916:
         try:
-            await message.reply_text("Work in progress")
+            await message.reply_text("prima versione dei config, ci sono molti bug probabilmente")
         except:
-            await message.chat.send_message("Work in progress")
+            await message.chat.send_message("prima versione dei config, ci sono molti bug probabilmente")
             
         return 
 
@@ -979,6 +1027,10 @@ async def config(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     try:
+        if not update.message.chat_id in groupsConfig:
+            groupsConfig[update.message.chat_id] = fromJSON("defaultConfig.json")
+            toJSON("groupsConfig.json",groupsConfig)
+            
         await context.bot.send_message(
             update.message.from_user.id,
             _('Ecco le impostazioni delle partite nel gruppo {link}').format(link=f'<a href="{message.chat.link}">{message.chat.effective_name}</a>'),
@@ -1009,7 +1061,7 @@ async def config_skiptime(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await context.bot.send_message(
         chat_id=query.message.chat_id,
-        text=_("Inviami ora in secondi quanto tempo devo aspettare prima di saltare un turno per inattività. Valore attuale: {value}").format(value = groupsConfig[context.user_data['group_chat'].id] if context.user_data['group_chat'].id in groupsConfig else "NONE") # TODO: Riguardare questo punto
+        text=_("Inviami ora in secondi quanto tempo devo aspettare prima di saltare un turno per inattività. Valore attuale: {value}").format(value = groupsConfig[context.user_data['group_chat'].id]['skiptime'] if context.user_data['group_chat'].id in groupsConfig else "NONE?") # TODO: Riguardare questo punto
     )
     
     await query.answer()
@@ -1019,36 +1071,92 @@ async def configSave_skiptime(update: Update, context: ContextTypes.DEFAULT_TYPE
     mex = update.effective_message
     txt = mex.text.strip()
     
+    
     if not txt.isnumeric():
-        update.effective_message.reply_text(_('Il messaggio deve essere solo un numero (esempio: "30") e rappresenterà il numero di secondi che aspetterò prima di skippare un turno. Riprova o annulla con /cancel.'))
+        await update.effective_message.reply_text(_('Il messaggio deve essere solo un numero (esempio: "50") e rappresenterà il numero di secondi che aspetterò prima di skippare un turno. Riprova o annulla con /cancel.'))
         return 
     
     groupsConfig[context.user_data['group_chat'].id]['skiptime'] = int(txt)
-    update.effective_message.reply_text(_("Tempo di inattività aggiornato a {newValue}."))
+    toJSON("groupsConfig.json",groupsConfig)
+    
+    await update.effective_message.reply_text(
+        _("Tempo di inattività aggiornato a {newValue} per il gruppo {group}.")
+        .format(
+            newValue=groupsConfig[context.user_data['group_chat'].id]['skiptime'],
+            group=context.user_data['group_chat'].title
+        )
+    )
+    
+    
     return ConversationHandler.END
 
 async def config_recapwords(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     
-    await query.answer("Work In Progress",show_alert=True)
+    await context.bot.send_message(
+        chat_id=query.message.chat_id,
+        text=_("Inviami ora quante parole dovrò mostrare per il recap (0 nessuna, -1 tutta la storia). Valore attuale: {value}").format(value = groupsConfig[context.user_data['group_chat'].id]['wordHistory'] if context.user_data['group_chat'].id in groupsConfig else "NONE?") # TODO: Riguardare questo punto
+    )
     
-    pass
+    await query.answer()
+    return 1    
 
 async def configSave_recapwords(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    pass
+    mex = update.effective_message
+    txt = mex.text.strip()
+    
+    
+    if not txt.isnumeric():
+        await update.effective_message.reply_text(_('Il messaggio deve essere solo un numero (esempio: "6") e rappresenterà il numero di parole che scriverò ogni turno (-1 tutta la storia, 0 nessun recap). Riprova o annulla con /cancel.'))
+        return 
+    
+    groupsConfig[context.user_data['group_chat'].id]['wordHistory'] = int(txt)
+    toJSON("groupsConfig.json",groupsConfig)
+    
+    await update.effective_message.reply_text(
+        _("Parole di recap aggiornate a {newValue} per il gruppo {group}.")
+        .format(
+            newValue=groupsConfig[context.user_data['group_chat'].id]['wordHistory'],
+            group=context.user_data['group_chat'].title
+        )
+    )
+    
+    return ConversationHandler.END
 
 async def config_maxwords(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     
-    await query.answer("Work In Progress",show_alert=True)
+    await context.bot.send_message(
+        chat_id=query.message.chat_id,
+        text=_("Inviami ora quante parole durerà la partita (0: nessun limite).\nSe imposti un numero di parole troppo basso il bot imposterà il massimo di parole per ogni partita al doppio del numero di partecipanti (work in progress, per ora segue questo massimo). Valore attuale: {value}").format(value = groupsConfig[context.user_data['group_chat'].id]['maxWords'] if context.user_data['group_chat'].id in groupsConfig else "NONE?") # TODO: Riguardare questo punto
+    )
     
-    pass
+    await query.answer()
+    return 1    
 
 async def configSave_maxwords(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    pass
+    mex = update.effective_message
+    txt = mex.text.strip()
+    
+    if not txt.isnumeric():
+        await update.effective_message.reply_text(_('Il messaggio deve essere solo un numero (esempio: "30") e rappresenterà il numero di parole massime per una storia (essenzialmente la durata di una partita). Riprova o annulla con /cancel.'))
+        return
+    
+    groupsConfig[context.user_data['group_chat'].id]['maxWords'] = int(txt)
+    toJSON("groupsConfig.json",groupsConfig)
+    
+    await update.effective_message.reply_text(
+        _("Parole massime aggiornate a {newValue} per il gruppo {group}.")
+        .format(
+            newValue=groupsConfig[context.user_data['group_chat'].id]['maxWords'],
+            group=context.user_data['group_chat'].title
+        )
+    )
+    
+    return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.bot.send_message(chat_id=update.effective_message.chat_id, text="Azione cancellata.")
+    await context.bot.send_message(chat_id=update.effective_message.chat_id, text="Azione cancellata.")
     return ConversationHandler.END
 
 async def onJoin(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1066,7 +1174,7 @@ def main():
     # Crea l'Updater e passagli il token del tuo bot
     # Accertati di impostare use_context=True per usare i nuovi context-based callbacks (non so cosa siano)
     # Dalla versione 12 non sarà più necessario
-    application = Application.builder().token(TOKEN).build() # Se si vuole usare la PicklePersistance bisogna aggiungere dopo .token(TOKEN) anche .persistance(OGGETTO_PP)
+    application = Application.builder().token(TOKEN).persistence(PicklePersistence(filepath="salvataggio_bot",update_interval=1)).build() # Se si vuole usare la PicklePersistance bisogna aggiungere dopo .token(TOKEN) anche .persistance(OGGETTO_PP)
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("new_ows_game", crea_partita))
@@ -1077,7 +1185,7 @@ def main():
     application.add_handler(CommandHandler("skip_ows_turn",skip_turn))
     application.add_handler(CommandHandler("wakeUp_ows",wakeUp))
     
-    application.add_handler(CommandHandler("config_ows",config))
+    application.add_handler(CommandHandler("cnfg_ows",config))
     
     application.add_handler(
         ConversationHandler(
@@ -1085,12 +1193,35 @@ def main():
             states={
                 1: [MessageHandler(~filters.COMMAND, configSave_skiptime)]
             },
-            fallbacks=[CommandHandler('cancel',cancel)]
+            fallbacks=[CommandHandler('cancel',cancel)],
+            persistent=True,
+            name='AttesaSkip'
         )
     )
     
-    application.add_handler(CallbackQueryHandler(config_recapwords, pattern="config:parole_recap"))
-    application.add_handler(CallbackQueryHandler(config_maxwords, pattern="config:max_parole"))
+    application.add_handler(
+        ConversationHandler(
+            entry_points=[CallbackQueryHandler(config_recapwords, pattern="config:parole_recap")],
+            states={
+                1: [MessageHandler(~filters.COMMAND, configSave_recapwords)]
+            },
+            fallbacks=[CommandHandler('cancel',cancel)],
+            persistent=True,
+            name='ParoleRecap'
+        )
+    )
+    
+    application.add_handler(
+        ConversationHandler(
+            entry_points=[CallbackQueryHandler(config_maxwords, pattern="config:max_parole")],
+            states={
+                1: [MessageHandler(~filters.COMMAND, configSave_maxwords)]
+            },
+            fallbacks=[CommandHandler('cancel',cancel)],
+            persistent=True,
+            name='MaxParole'
+        )
+    )
     
     application.add_handler(CommandHandler("changeLanguage_ows",lingua))
     application.add_handler(CallbackQueryHandler(linguaPremuta, pattern="language"))
