@@ -126,9 +126,10 @@ class Partita:
         
         groupConfig = fromJSON("groupsConfig.json")[str(self.groupId)]
         
-        self.timer: int = groupConfig['skiptime']
-        self.wordHistory: int = groupConfig['wordHistory']
-        self.maxWords: int = groupConfig['maxWords']
+        self.timerConfig: int = groupConfig['skiptime']
+        self.wordHistoryConfig: int = groupConfig['wordHistory']
+        self.maxWordsConfig: int = groupConfig['maxWords']
+        self.maxWordsEffective: int = self.maxWordsConfig
         
     def addWord(self, word: Message):
         self.storia.append(word)
@@ -151,7 +152,7 @@ class Partita:
             if partecipante != self.aChiTocca():
                 listaStringa += '- ' + partecipante.nomeUtente + '\n'
             else:
-                listaStringa += '-→ ' + partecipante.nomeUtente + '\n'
+                listaStringa += '→ ' + partecipante.nomeUtente + '\n'
         
         return listaStringa
 
@@ -212,13 +213,21 @@ partite: dict[str, Partita] = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):  # /start
     
-    utente = ('@' + update.message.from_user.username) if update.message.from_user.username != None else update.message.from_user.full_name
-    idUtente = update.message.from_user.id
+    roba = update.effective_message
+    utente = ('@' + roba.from_user.username) if roba.from_user.username != None else roba.from_user.full_name
+    idUtente = roba.from_user.id
 
-    users.saveUser(str(idUtente), utente, update.message.from_user.language_code)
+
+    users.saveUser(str(idUtente), utente, roba.from_user.language_code)
     cambiaLingua(str(idUtente),users.getUserLang(str(idUtente)))
 
-    logging.info(f'{utente}, {idUtente} - Ha eseguito /start')
+    logging.info(f'{utente}, {idUtente} - Ha eseguito ' + roba.text)
+    
+    if "config" in roba.text:
+        await prova_messaggio(
+            _("Benvenuto nel bot \"One Word Story\". Per configurare riutilizza il comando /cnfg_ows nel gruppo.")
+        )
+    
     await prova_messaggio(_(
         'Benvenuto nel bot "One Word Story". Per giocare aggiungimi in un gruppo e fai /crea_partita'),
                     update=update,
@@ -320,6 +329,10 @@ async def join_ows_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Creo il nuovo partecipante
     partite[f'{chat_id}'].partecipanti[f'{idUtente}'] = Partecipante(utente, idUtente)
     
+    if len(partita.partecipanti) > partita.maxWordsConfig:
+        partita.maxWordsEffective = len(partita.partecipanti)
+        await roba.chat.send_message("Ho aggiornato il limite di parole per questa partita a {newMaxWords}.".format(newMaxWords = str(len(partita.partecipanti))))
+        
     # Modifica il messaggio di creazione della partita per mostrare la lista dei partecipanti al game
 
     if partita.MessaggioListaPartecipanti is not None:
@@ -398,13 +411,17 @@ async def avvia_partita(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bot=context.bot
     )
     
+    if len(partita.partecipanti) > partita.maxWordsConfig:
+        partita.maxWordsEffective = len(partita.partecipanti)
+        await roba.chat.send_message("Ho aggiornato il limite di parole per questa partita a {newMaxWords}.".format(newMaxWords = str(len(partita.partecipanti))))
+    
     context.job_queue.run_once(
         callback=test,
-        when=partita.timer,
+        when=partita.timerConfig,
         data=(partita,update),
         name=f"{roba.chat_id} - {partita.aChiTocca().idUtente}"
     )
-    
+
 
 async def onMessageInGroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global partite
@@ -500,22 +517,26 @@ async def onMessageInGroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
        
         return
+
+    
+        
         
     rimuovi_timer(
         roba.chat.id,
         idUtente,
         context.job_queue
     )
-
     partita.addWord(update.effective_message)
     partecipante.hasWritten = True
     if partita.skipVotes > 0:
         for partecipante in partita.partecipanti.values():
             partecipante.voteSkip = False
 
-    if len(partita.storia) == partita.maxWords:
+
+
+    if len(partita.storia) == partita.maxWordsEffective:
         await roba.chat.send_message(
-            "Avete raggiunto le " + str(partita.maxWords) + " parole."
+            "Avete raggiunto le " + str(partita.maxWordsEffective) + " parole."
         )
         await termina_partita(
             update=update,
@@ -539,7 +560,7 @@ async def onMessageInGroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
       
     context.job_queue.run_once(
         callback=test, 
-        when=partita.timer, 
+        when=partita.timerConfig, 
         data=(partita,update),
         name=f"{roba.chat_id} - {partita.aChiTocca().idUtente}"
     )
@@ -547,9 +568,9 @@ async def onMessageInGroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     partita.wakeUpMessages[idUtente] = await prova_messaggio(
         _("Tocca a {user}. Ultime {nWords} parole: {words}").format(
-            nWords = partita.wordHistory,
+            nWords = partita.wordHistoryConfig,
             user=partita.aChiTocca().nomeUtente,
-            words=partita.ottieniStoria(partita.wordHistory)
+            words=partita.ottieniStoria(partita.wordHistoryConfig)
         ),
         update=update,
         bot=context.bot
@@ -581,7 +602,7 @@ async def test(context: ContextTypes.DEFAULT_TYPE):
 
         context.job_queue.run_once(
             callback=test, 
-            when=partita.timer, 
+            when=partita.timerConfig, 
             data=(partita,update),
             name=f"{update.effective_message.chat.id} - {partita.aChiTocca().idUtente}"
         )
@@ -749,6 +770,13 @@ async def quit_ows_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Se passi tutti i controlli togli l'utente dai partecipanti e ristampa la lista
     partita.partecipanti.pop(idUtente)
     
+    if len(partita.partecipanti) > partita.maxWordsConfig:
+        partita.maxWordsEffective = len(partita.partecipanti)
+        await roba.chat.send_message("Ho aggiornato il limite di parole per questa partita a {newMaxWords}.".format(newMaxWords = str(len(partita.partecipanti))))
+    elif len(partita.partecipanti) == partita.maxWordsConfig:
+        partita.maxWordsEffective = partita.maxWordsConfig
+        await roba.chat.send_message("La partita può seguire il limite di parole standard impostato nei config ({newMaxWords}).".format(newMaxWords = str(len(partita.partecipanti))))
+    
     rimuovi_timer(
         roba.chat_id,
         idUtente,
@@ -760,6 +788,17 @@ async def quit_ows_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update=update,
         bot=context.bot
     )
+    
+    await roba.chat.send_message(
+        _("Tocca a {user}. Ultime {nWords} parole: {words}").format(
+            nWords = partita.wordHistoryConfig,
+            user=partita.aChiTocca().nomeUtente,
+            words=partita.ottieniStoria(partita.wordHistoryConfig)
+        ),
+        update=update,
+        bot=context.bot
+    )
+    
     
 
 async def skip_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -824,6 +863,7 @@ async def skip_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
             bot=context.bot
         )
         partita.MessaggioVoteSkip = mess
+        
     partita.partecipanti[idUtente].voteSkip = True
     
     if partita.MessaggioVoteSkip is not None:
@@ -873,9 +913,9 @@ async def skip_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             await prova_messaggio(
                 _('Tutti i partecipanti hanno scritto una parola. Ora ricominciamo da {turno}.\n\nUltime {nWords} parole: {words}').format(
-                    nWords=partita.wordHistory,
+                    nWords=partita.wordHistoryConfig,
                     turno=partita.getAllPartecipants()[0].nomeUtente,
-                    words=partita.ottieniStoria(partita.wordHistory)
+                    words=partita.ottieniStoria(partita.wordHistoryConfig)
                 ),
                 update=update,
                 bot=context.bot
@@ -996,62 +1036,57 @@ async def config(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     message = update.effective_message
     
-    if message.from_user.id != 245996916:
-        try:
-            await message.reply_text("prima versione dei config, ci sono molti bug probabilmente")
-        except:
-            await message.chat.send_message("prima versione dei config, ci sono molti bug probabilmente")
-            
-        return 
-
     chat_id = message.chat_id
     
     if chat_id > 0:
         await message.reply_text(_("Usa questo comando in un gruppo in cui hai il permesso di modificare le informazioni del gruppo."))
         return
     
-    utenti_ammessi: list[User] = []
-    for admin in await update.message.chat.get_administrators():
-        admin: ChatMemberAdministrator | ChatMemberOwner
-        if type(admin) is ChatMemberAdministrator and admin.can_change_info:
-            utenti_ammessi.append(admin.user)
-        elif type(admin) is ChatMemberOwner:
-            utenti_ammessi.append(admin.user)
-    
-    if message.from_user.id not in [u.id for u in utenti_ammessi]:
-        await prova_messaggio(
-            _("Non hai il permesso di modificare le informazioni del gruppo, quindi neanche le impostazioni di questo bot."),
-            update=update,
-            bot=context.bot
-            )
-        return
+    if message.from_user.id != 245996916:
+        utenti_ammessi: list[User] = []
+        for admin in await update.message.chat.get_administrators():
+            admin: ChatMemberAdministrator | ChatMemberOwner
+            if type(admin) is ChatMemberAdministrator and admin.can_change_info:
+                utenti_ammessi.append(admin.user)
+            elif type(admin) is ChatMemberOwner:
+                utenti_ammessi.append(admin.user)
+        
+        if message.from_user.id not in [u.id for u in utenti_ammessi]:
+            await prova_messaggio(
+                _("Non hai il permesso di modificare le informazioni del gruppo, quindi neanche le impostazioni di questo bot."),
+                update=update,
+                bot=context.bot
+                )
+            return
     
     try:
-        if not update.message.chat_id in groupsConfig:
+        if not str(update.message.chat_id) in groupsConfig:
             groupsConfig[update.message.chat_id] = fromJSON("defaultConfig.json")
             toJSON("groupsConfig.json",groupsConfig)
-            
+        
         await context.bot.send_message(
             update.message.from_user.id,
             _('Ecco le impostazioni delle partite nel gruppo {link}').format(link=f'<a href="{message.chat.link}">{message.chat.effective_name}</a>'),
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(CONFIG_KEYBOARD)
         )
+        
         await prova_messaggio(
             messaggio=_("Vai in privato per le impostazioni del gruppo!"),
             update=update,
             bot=context.bot,
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Apri chat",url=context.bot.link)]])
         )
-        context.user_data['group_chat'] = message.chat
         
+        context.user_data['message'] = message
+        context.user_data['group_chat'] = message.chat
     except:
         await prova_messaggio(
             _('Devi prima avviare il bot in privato!'),
             update=update,
             bot=context.bot,
             parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(_('Avviami in privato!'),url=context.bot.link)]])
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(_('Avviami in privato!'),url=context.bot.link + "?start=config")]])
         )
     
 async def config_skiptime(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1061,11 +1096,33 @@ async def config_skiptime(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await context.bot.send_message(
         chat_id=query.message.chat_id,
-        text=_("Inviami ora in secondi quanto tempo devo aspettare prima di saltare un turno per inattività. Valore attuale: {value}").format(value = groupsConfig[context.user_data['group_chat'].id]['skiptime'] if context.user_data['group_chat'].id in groupsConfig else "NONE?") # TODO: Riguardare questo punto
+        text=_("Inviami quanti secondi vuoi impostare di attesa prima di saltare un turno per inattività. Valore attuale: {value}").format(value = groupsConfig[str(context.user_data['group_chat'].id)]['skiptime'] if str(context.user_data['group_chat'].id) in groupsConfig else "NONE?")
     )
     
     await query.answer()
     return 1    
+
+keyboard_go_back = InlineKeyboardMarkup(
+    [
+        [
+            InlineKeyboardButton('Torna alla lista',callback_data='config:go_back')
+        ]
+    ]
+)
+
+async def backToConfig(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message: Message = context.user_data['message']
+    toEdit: Message = context.user_data['messageToEdit']
+    
+    await toEdit.edit_text(
+        text=_('Ecco le impostazioni delle partite nel gruppo {link}').format(link=f'<a href="{message.chat.link}"><b>{message.chat.effective_name}</b></a>'),
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup(CONFIG_KEYBOARD)
+    )
+    
+    context.user_data['messageToEdit'] = None
+    await update.callback_query.answer()
+
 
 async def configSave_skiptime(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mex = update.effective_message
@@ -1076,15 +1133,16 @@ async def configSave_skiptime(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.effective_message.reply_text(_('Il messaggio deve essere solo un numero (esempio: "50") e rappresenterà il numero di secondi che aspetterò prima di skippare un turno. Riprova o annulla con /cancel.'))
         return 
     
-    groupsConfig[context.user_data['group_chat'].id]['skiptime'] = int(txt)
+    groupsConfig[str(context.user_data['group_chat'].id)]['skiptime'] = int(txt)
     toJSON("groupsConfig.json",groupsConfig)
     
-    await update.effective_message.reply_text(
+    context.user_data['messageToEdit'] = await update.effective_message.reply_text(
         _("Tempo di inattività aggiornato a {newValue} per il gruppo {group}.")
         .format(
-            newValue=groupsConfig[context.user_data['group_chat'].id]['skiptime'],
+            newValue=groupsConfig[str(context.user_data['group_chat'].id)]['skiptime'],
             group=context.user_data['group_chat'].title
-        )
+        ),
+        reply_markup=keyboard_go_back
     )
     
     
@@ -1095,7 +1153,9 @@ async def config_recapwords(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await context.bot.send_message(
         chat_id=query.message.chat_id,
-        text=_("Inviami ora quante parole dovrò mostrare per il recap (0 nessuna, -1 tutta la storia). Valore attuale: {value}").format(value = groupsConfig[context.user_data['group_chat'].id]['wordHistory'] if context.user_data['group_chat'].id in groupsConfig else "NONE?") # TODO: Riguardare questo punto
+        text=_("Inviami ora quante parole dovrò mostrare per il recap (0 nessuna, -1 tutta la storia). Valore attuale: {value}").format(
+            value=groupsConfig[str(context.user_data['group_chat'].id)]['wordHistory'] if str(context.user_data['group_chat'].id) in groupsConfig else "NONE?"
+        )
     )
     
     await query.answer()
@@ -1105,20 +1165,20 @@ async def configSave_recapwords(update: Update, context: ContextTypes.DEFAULT_TY
     mex = update.effective_message
     txt = mex.text.strip()
     
-    
-    if not txt.isnumeric():
+    if txt != "-1" and not txt.isnumeric():
         await update.effective_message.reply_text(_('Il messaggio deve essere solo un numero (esempio: "6") e rappresenterà il numero di parole che scriverò ogni turno (-1 tutta la storia, 0 nessun recap). Riprova o annulla con /cancel.'))
         return 
     
-    groupsConfig[context.user_data['group_chat'].id]['wordHistory'] = int(txt)
+    groupsConfig[str(context.user_data['group_chat'].id)]['wordHistory'] = int(txt)
     toJSON("groupsConfig.json",groupsConfig)
     
-    await update.effective_message.reply_text(
+    context.user_data['messageToEdit'] = await update.effective_message.reply_text(
         _("Parole di recap aggiornate a {newValue} per il gruppo {group}.")
         .format(
-            newValue=groupsConfig[context.user_data['group_chat'].id]['wordHistory'],
+            newValue=groupsConfig[str(context.user_data['group_chat'].id)]['wordHistory'],
             group=context.user_data['group_chat'].title
-        )
+        ),
+        reply_markup=keyboard_go_back
     )
     
     return ConversationHandler.END
@@ -1128,7 +1188,7 @@ async def config_maxwords(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await context.bot.send_message(
         chat_id=query.message.chat_id,
-        text=_("Inviami ora quante parole durerà la partita (0: nessun limite).\nSe imposti un numero di parole troppo basso il bot imposterà il massimo di parole per ogni partita al doppio del numero di partecipanti (work in progress, per ora segue questo massimo). Valore attuale: {value}").format(value = groupsConfig[context.user_data['group_chat'].id]['maxWords'] if context.user_data['group_chat'].id in groupsConfig else "NONE?") # TODO: Riguardare questo punto
+        text=_("Inviami ora quante parole durerà la partita (0: nessun limite).\nSe imposti un numero di parole troppo basso il bot imposterà il massimo di parole per ogni partita al doppio del numero di partecipanti (work in progress, per ora segue questo massimo). Valore attuale: {value}").format(value = groupsConfig[str(context.user_data['group_chat'].id)]['maxWords'] if str(context.user_data['group_chat'].id) in groupsConfig else "NONE?") # TODO: Riguardare questo punto
     )
     
     await query.answer()
@@ -1142,15 +1202,16 @@ async def configSave_maxwords(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.effective_message.reply_text(_('Il messaggio deve essere solo un numero (esempio: "30") e rappresenterà il numero di parole massime per una storia (essenzialmente la durata di una partita). Riprova o annulla con /cancel.'))
         return
     
-    groupsConfig[context.user_data['group_chat'].id]['maxWords'] = int(txt)
+    groupsConfig[str(context.user_data['group_chat'].id)]['maxWords'] = int(txt)
     toJSON("groupsConfig.json",groupsConfig)
     
-    await update.effective_message.reply_text(
+    context.user_data['messageToEdit'] = await update.effective_message.reply_text(
         _("Parole massime aggiornate a {newValue} per il gruppo {group}.")
         .format(
-            newValue=groupsConfig[context.user_data['group_chat'].id]['maxWords'],
+            newValue=groupsConfig[str(context.user_data['group_chat'].id)]['maxWords'],
             group=context.user_data['group_chat'].title
-        )
+        ),
+        reply_markup=keyboard_go_back
     )
     
     return ConversationHandler.END
@@ -1186,6 +1247,7 @@ def main():
     application.add_handler(CommandHandler("wakeUp_ows",wakeUp))
     
     application.add_handler(CommandHandler("cnfg_ows",config))
+    application.add_handler(CallbackQueryHandler(backToConfig,pattern='config:go_back'))
     
     application.add_handler(
         ConversationHandler(
