@@ -613,23 +613,26 @@ async def onMessageInGroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def test(context: ContextTypes.DEFAULT_TYPE):
     partita: Partita = context.job.data[0]
     update: Update = context.job.data[1]
+    
     indiceTurnoAttuale = partita.getAllPartecipants().index(partita.aChiTocca())
+    
     await update.effective_message.chat.send_message(
         _("{user} ha impiegato troppo tempo per inviare una parola, skippo il turno a {next}").format(
             user = partita.aChiTocca().nomeUtente,
             next = partita.getAllPartecipants()[(indiceTurnoAttuale + 1) % len(partita.getAllPartecipants())].nomeUtente
         )
     )
+    
     partita.aChiTocca().hasWritten = True
     
     if partita.everyone_has_written():
         for partecipante in partita.getAllPartecipants():
             partecipante.hasWritten = False
         
-        await prova_messaggio(
-            _('Tutti i partecipanti hanno scritto una parola. Ora ricominciamo da {user}').format(user=partita.aChiTocca().nomeUtente),
-            update=update,
-            bot=context.bot
+        await update.effective_message.chat.send_message(
+            _('Tutti i partecipanti hanno scritto una parola. Ora ricominciamo da {user}').format(
+                user=partita.aChiTocca().nomeUtente
+            )
         )
 
         context.job_queue.run_once(
@@ -1338,8 +1341,12 @@ async def vote_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if partita.voteWords == len(partita.partecipanti):
         rimossa = partita.storia.pop()
+        rimuovi_timer(
+            chatId=chat_id,
+            idUtente=partita.aChiTocca().idUtente,
+            job_queue = context.job_queue
+        )
         partita.getLastTurn().hasWritten = False
-        
         
         await prova_messaggio(
             _("La votazione per annullare l'ultima parola giocata ({word}) ha avuto successo.\n\nTocca di nuovo a {user}, Ultime {nWords} parole: {words}").format(
@@ -1351,7 +1358,14 @@ async def vote_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
             update=update,
             bot=context.bot
         )
-
+        
+        context.job_queue.run_once(
+            callback=test, 
+            when=partita.timerConfig, 
+            data=(partita,update),
+            name=f"{roba.chat_id} - {partita.aChiTocca().idUtente}"
+        )
+        
         partita.resetVotesCancel()
 
 
