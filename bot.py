@@ -53,18 +53,14 @@ def fromJSON(file: str, ifFileEmpty = "[]"):
     return thing
 #endregion
 
-#TODO: ✔ Tempo del timer impostabile
-#TODO: ... Lunghezza recap parole impostabile
-#TODO: Lunghezza massima storia impostabile
-#TODO: Modalità con due parole a testa
-#TODO: Lunghezza massima parole impostabile
+#TODO: Sistema di votazione per annullare l'ultima parola scritta
 
 TOKEN = None  # TOKEN DEL BOT
 with open('token.txt', 'r') as f:
     TOKEN = f.read().strip()
 
 # ID TELEGRAM PER RICEVERE NOTIFICA (ottienilo con t.me/JsonDumpBot)
-MASTER_ADMIN = ["245996916"]
+MASTER_ADMIN = ['245996916']
 ID_CANALE_LOG = '-1001741378490'
 
 # https://docs.python-telegram-bot.org/en/stable/telegram.ext.handler.html
@@ -89,6 +85,7 @@ class Partecipante:
         self.idUtente: str = str(id)
         self.hasWritten = False
         self.voteSkip = False
+        self.voteWord = False
 
 
 # Rappresenta una partita:
@@ -115,6 +112,7 @@ class Partita:
         self.wakeUpMessages: dict[str,Message] = {}
         self.groupId = groupId
         self.skipVotes = 0
+        self.voteWords = 0
 
         self.loadConfig()
         
@@ -163,9 +161,20 @@ class Partita:
         if not self.getAllPartecipants()[0].hasWritten:
             return self.getAllPartecipants()[0]
 
-    def resetVotes(self):
+    def getLastTurn(self) -> Partecipante:
+        partecipants = self.getAllPartecipants()
+        for i, p in enumerate(partecipants):
+            if not p.hasWritten:
+                return partecipants[i-1]
+    
+    def resetVotesSkip(self):
         for partecipante in self.getAllPartecipants():
             partecipante.voteSkip = False
+    
+    def resetVotesCancel(self):
+        self.voteWords = 0
+        for partecipante in self.getAllPartecipants():
+            partecipante.voteWord = False
     
     def ottieniStoria(self, parole=-1):
         if parole < -1:
@@ -228,11 +237,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):  # /start
             _("Benvenuto nel bot \"One Word Story\". Per configurare riutilizza il comando /cnfg_ows nel gruppo.")
         )
     
-    await prova_messaggio(_(
-        'Benvenuto nel bot "One Word Story". Per giocare aggiungimi in un gruppo e fai /crea_partita'),
-                    update=update,
-                    bot=context.bot)
+    await prova_messaggio(
+        _('Benvenuto nel bot "One Word Story". Per giocare aggiungimi in un gruppo e fai /new_ows_game'),
+        update=update,
+        bot=context.bot
+    )
 
+async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    idUtente = update.effective_message.from_user.id
+    
+    cambiaLingua(str(idUtente),users.getUserLang(str(idUtente)))
+    await prova_messaggio(
+        _(
+            'Questo bot ti permetterà di giocare a OneWordStory nel tuo gruppo!\n\nPer giocarci aggiungilo ad un gruppo e scrivi /new_ows_game. Una volta fatto ciò i giocatori dovranno entrare scrivendo /join_ows_game, e, una volta che tutti saranno pronti, la partita dovrà essere avviata con /start_ows_game da colui che ha creato la partita.\n\nOgni giocatore potrà entrare o uscire da una partita in corso con i comandi /join_ows_game e /quit_ows_game.\n\nA partita avviata, ogni giocatore a turno dovrà scrivere UNA parola preceduta dal carattere "*".\n\nC\'è un tempo di inattività impostato di default a 50 secondi, ma è personalizzabile.\n\nPer modificare le impostazioni del bot è possibile usare il comando /cnfg_ows nella chat del gruppo e configurare le impostazioni desiderate nella chat privata del bot.\n\nPer eventuali problemi contattare @Andtheking.'
+        )
+    )
 
 async def prova_messaggio(messaggio:str, update: Update, bot: ExtBot, parse_mode=ParseMode.HTML, reply_markup=None):
     
@@ -310,7 +329,7 @@ async def join_ows_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Controllo se per la chat esiste una partita
     if not gameExists(chat_id):
         await prova_messaggio(
-            _('Non è stata creata nessuna partita. Creane una con /crea_partita'),
+            _('Non è stata creata nessuna partita. Creane una con /new_ows_game'),
             update=update,
             bot=context.bot
         )
@@ -329,7 +348,7 @@ async def join_ows_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Creo il nuovo partecipante
     partite[f'{chat_id}'].partecipanti[f'{idUtente}'] = Partecipante(utente, idUtente)
     
-    if len(partita.partecipanti) > partita.maxWordsConfig:
+    if partita.maxWordsConfig != 0  and len(partita.partecipanti) > partita.maxWordsConfig:
         partita.maxWordsEffective = len(partita.partecipanti)
         await roba.chat.send_message("Ho aggiornato il limite di parole per questa partita a {newMaxWords}.".format(newMaxWords = str(len(partita.partecipanti))))
         
@@ -377,7 +396,7 @@ async def avvia_partita(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Se la partita non esiste
     if not gameExists(chat_id): 
         await prova_messaggio(
-            _('Non è stata creata nessuna partita. Creane una con /crea_partita'),
+            _('Non è stata creata nessuna partita. Creane una con /new_ows_game'),
             update=update,
             bot=context.bot
         )
@@ -411,9 +430,9 @@ async def avvia_partita(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bot=context.bot
     )
     
-    if len(partita.partecipanti) > partita.maxWordsConfig:
+    if partita.maxWordsConfig != 0 and len(partita.partecipanti) > partita.maxWordsConfig:
         partita.maxWordsEffective = len(partita.partecipanti)
-        await roba.chat.send_message("Ho aggiornato il limite di parole per questa partita a {newMaxWords}.".format(newMaxWords = str(len(partita.partecipanti))))
+        await roba.chat.send_message(_("Ho aggiornato il limite di parole per questa partita a {newMaxWords}.").format(newMaxWords = str(len(partita.partecipanti))))
     
     context.job_queue.run_once(
         callback=test,
@@ -421,7 +440,6 @@ async def avvia_partita(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data=(partita,update),
         name=f"{roba.chat_id} - {partita.aChiTocca().idUtente}"
     )
-
 
 async def onMessageInGroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global partite
@@ -432,7 +450,8 @@ async def onMessageInGroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     utente = roba.from_user.name
     idUtente = str(roba.from_user.id)
     messaggio_id = roba.message_id
-
+    
+    users.saveUser(str(idUtente), utente, roba.from_user.language_code) # Il controllo se esiste già è nel metodo direttamente
 
     # Se la partita non esiste o non è stata avviata non fare nulla
     if (not f'{chat_id}' in partite):
@@ -492,7 +511,7 @@ async def onMessageInGroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    max_caratteri = 15
+    max_caratteri = 999
 
     # Se il messaggio è troppo lungo avvia e cancella il messaggio
     if (len(messaggio) > max_caratteri):
@@ -526,15 +545,28 @@ async def onMessageInGroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         idUtente,
         context.job_queue
     )
+    
     partita.addWord(update.effective_message)
     partecipante.hasWritten = True
+    
     if partita.skipVotes > 0:
-        for partecipante in partita.partecipanti.values():
-            partecipante.voteSkip = False
+        await prova_messaggio(
+            _("Annullata la votazione per skip."),
+            update=update,
+            bot=context.bot
+        )
+        partita.resetVotesSkip()
+    
+    if partita.voteWords > 0:
+        await prova_messaggio(
+            _("Annullata la votazione per cancellare l'ultima parola."),
+            update=update,
+            bot=context.bot
+        )
+        partita.resetVotesCancel()
 
 
-
-    if len(partita.storia) == partita.maxWordsEffective:
+    if partita.maxWordsConfig != 0 and len(partita.storia) == partita.maxWordsEffective:
         await roba.chat.send_message(
             "Avete raggiunto le " + str(partita.maxWordsEffective) + " parole."
         )
@@ -647,22 +679,22 @@ async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await context.bot.send_message(chat_id=chat_id,text=_("Partita terminata forzatamente da un admin del bot."))
                     
-            if chat_id != str(roba.chat_id):
-                prova_messaggio(
-                            _("Partita terminata con successo in {group_name}").format(
-                                group_name = (await context.bot.get_chat(chat_id)).effective_name
-                            ),
-                            update=update,
-                            bot=context.bot
-                        )
-                    # Azzero qualsiasi cosa possibile per cancellare la partita
+            if str(chat_id) != str(roba.chat_id):
+                await prova_messaggio(
+                    _("Partita terminata con successo in {group_name}").format(
+                        group_name = (await context.bot.get_chat(chat_id)).effective_name
+                    ),
+                    update=update,
+                    bot=context.bot
+                )
+                # Azzero qualsiasi cosa possibile per cancellare la partita
                     
             for partecipante in partita.getAllPartecipants():
                 rimuovi_timer(
-                            roba.chat_id,
-                            idUtente,
-                            context.job_queue
-                        )
+                    roba.chat_id,
+                    idUtente,
+                    context.job_queue
+                )
                         
             partite.pop(f'{chat_id}', None)
         return # Non continuo
@@ -750,7 +782,7 @@ async def quit_ows_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Se non esiste una partita non puoi quittarla e.e
     if not f'{chat_id}' in partite:
-        await prova_messaggio(_('Non è stata creata nessuna partita. Creane una con /crea_partita'),
+        await prova_messaggio(_('Non è stata creata nessuna partita. Creane una con /new_ows_game'),
             update=update,
             bot=context.bot
         )
@@ -767,13 +799,17 @@ async def quit_ows_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    isHisTurn = False
+    if idUtente == partita.aChiTocca().idUtente:
+        isHisTurn = True
+
     # Se passi tutti i controlli togli l'utente dai partecipanti e ristampa la lista
     partita.partecipanti.pop(idUtente)
     
-    if len(partita.partecipanti) > partita.maxWordsConfig:
+    if partita.maxWordsConfig != 0 and len(partita.partecipanti) > partita.maxWordsConfig:
         partita.maxWordsEffective = len(partita.partecipanti)
         await roba.chat.send_message("Ho aggiornato il limite di parole per questa partita a {newMaxWords}.".format(newMaxWords = str(len(partita.partecipanti))))
-    elif len(partita.partecipanti) == partita.maxWordsConfig:
+    elif partita.maxWordsConfig != 0 and len(partita.partecipanti) == partita.maxWordsConfig:
         partita.maxWordsEffective = partita.maxWordsConfig
         await roba.chat.send_message("La partita può seguire il limite di parole standard impostato nei config ({newMaxWords}).".format(newMaxWords = str(len(partita.partecipanti))))
     
@@ -784,22 +820,28 @@ async def quit_ows_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     
     await prova_messaggio(
-        _(f'{update.effective_message.from_user.name}, ' + "sei uscito dalla partita con successo.\n\nPartecipanti restanti:\n{remain}").format(remain=partita.getAllPartecipantsString()),
-        update=update,
-        bot=context.bot
-    )
-    
-    await roba.chat.send_message(
-        _("Tocca a {user}. Ultime {nWords} parole: {words}").format(
-            nWords = partita.wordHistoryConfig,
-            user=partita.aChiTocca().nomeUtente,
-            words=partita.ottieniStoria(partita.wordHistoryConfig)
+        _('{user}, sei uscito dalla partita con successo.\n\nPartecipanti restanti:\n{remain}').format(
+            remain = partita.getAllPartecipantsString(), 
+            user = update.effective_message.from_user.name
         ),
         update=update,
         bot=context.bot
     )
     
-    
+    if isHisTurn:
+        await roba.chat.send_message(
+            _("Tocca a {user}. Ultime {nWords} parole: {words}").format(
+                nWords = partita.wordHistoryConfig,
+                user=partita.aChiTocca().nomeUtente,
+                words=partita.ottieniStoria(partita.wordHistoryConfig)
+            ),
+            update=update,
+            bot=context.bot
+        )
+        if partita.skipVotes > 0:
+            partita.resetVotesSkip()
+
+
 
 async def skip_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global partite
@@ -1007,7 +1049,7 @@ async def linguaPremuta(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     
 def cambiaLingua(id: str, lingua: str):
-    return 
+    return
     lingua = lingua.replace('\n','')
 
     lingue_possibli = ["it","en"]
@@ -1100,7 +1142,7 @@ async def config_skiptime(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     
     await query.answer()
-    return 1    
+    return 1
 
 keyboard_go_back = InlineKeyboardMarkup(
     [
@@ -1229,6 +1271,92 @@ async def onJoin(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await context.bot.send_message(update.message.chat_id, "Ciao! Questo gruppo aveva già una configurazione salvata in passato, utilizzerò quella.")
 
+async def vote_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global partite
+
+    roba = update.effective_message
+        
+    nomeUtente = roba.from_user.name
+    idUtente = str(roba.from_user.id)
+    chat_id = roba.chat.id
+    messaggio = roba.text
+    messaggio_id = roba.message_id
+
+    cambiaLingua(idUtente,users.getUserLang(idUtente))
+    
+    # Se la partita non esiste
+    if not f'{chat_id}' in partite:
+        await prova_messaggio(
+            _("Devi prima creare una partita."),
+            update=update,
+            bot=context.bot
+        )
+        return
+
+    partita = partite[f"{chat_id}"]
+
+    if not partita.isStarted:
+        await prova_messaggio(
+            _("La partita non è stata ancora avviata."),
+            update=update, 
+            bot=context.bot
+        )
+        return
+        
+    if partita.partecipanti[str(idUtente)].voteWord:
+        await prova_messaggio(
+            _("{user}, hai già votato.").format(user=nomeUtente),
+            update=update, 
+            bot=context.bot
+        )
+        return
+
+    partita.voteWords += 1
+    partita.partecipanti[str(idUtente)].voteWord = True
+    
+    if partita.voteWords == 1:
+        await prova_messaggio(
+            _("Il giocatore {utente} ha avviato la votazione per annullare l'ultima parola giocata, votate con /cancel_ows_word. Stato votazione: {votes}/{votesNeeded}\n\nSe {turn} scriverà una parola la votazione sarà annullata.").format(
+                utente = nomeUtente,
+                votes = partita.voteWords,
+                votesNeeded = len(partita.partecipanti),
+                turn = partita.aChiTocca()
+            ),
+            update=update,
+            bot=context.bot
+        )
+    else:
+        await prova_messaggio(
+            _("{utente} ha votato per annullare l'ultima parola giocata, votate con /cancel_ows_word. Stato votazione: {votes}/{votesNeeded}").format(
+                utente = nomeUtente,
+                votes = partita.voteWords,
+                votesNeeded = len(partita.partecipanti)
+            ),
+            update=update,
+            bot=context.bot
+        )
+
+    if partita.voteWords == len(partita.partecipanti):
+        rimossa = partita.storia.pop()
+        partita.getLastTurn().hasWritten = False
+        
+        
+        await prova_messaggio(
+            _("La votazione per annullare l'ultima parola giocata ({word}) ha avuto successo.\n\nTocca di nuovo a {user}, Ultime {nWords} parole: {words}").format(
+                word = formattaMessaggio(rimossa.text.strip()),
+                user = partita.aChiTocca().nomeUtente,
+                nWords = partita.wordHistoryConfig,
+                words=partita.ottieniStoria(partita.wordHistoryConfig)
+            ),
+            update=update,
+            bot=context.bot
+        )
+
+        partita.resetVotesCancel()
+
+
+   
+
 def main():
     # Avvia il bot
 
@@ -1302,6 +1430,12 @@ def main():
             ~filters.COMMAND, onMessageInGroup, block=False)
         ) 
     
+    application.add_handler(
+        CommandHandler(
+            "cancel_ows_word",
+            callback=vote_word
+        )
+    )
 
     # In caso di errore vai nel metodo "error"
     application.add_error_handler(error)
