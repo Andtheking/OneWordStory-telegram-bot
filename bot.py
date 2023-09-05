@@ -1450,6 +1450,13 @@ def main():
             callback=vote_word
         )
     )
+    
+    application.add_handler(
+        CommandHandler(
+            "help",
+            callback=help
+        )
+    )
 
     # In caso di errore vai nel metodo "error"
     application.add_error_handler(error)
