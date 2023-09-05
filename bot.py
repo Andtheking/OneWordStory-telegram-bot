@@ -73,7 +73,8 @@ logger = logging.getLogger(__name__)
 
 _ = gettext.gettext
 
-groupsConfig = fromJSON("groupsConfig.json")
+def groupsConfig():
+    return fromJSON("groupsConfig.json")
 
 # Rappresenta un partecipante alla partita:
 #   nomeUtente: Il suo username o nome e cognome
@@ -118,11 +119,12 @@ class Partita:
         
         
     def loadConfig(self):
-        if not str(self.groupId) in groupsConfig:
-            groupsConfig[self.groupId] = fromJSON("defaultConfig.json")
-            toJSON("groupsConfig.json",groupsConfig)
+        gc = groupsConfig()
+        if not str(self.groupId) in gc:
+            gc[self.groupId] = fromJSON("defaultConfig.json")
+            toJSON("groupsConfig.json",gc)
         
-        groupConfig = fromJSON("groupsConfig.json")[str(self.groupId)]
+        groupConfig = groupsConfig()[str(self.groupId)]
         
         self.timerConfig: int = groupConfig['skiptime']
         self.wordHistoryConfig: int = groupConfig['wordHistory']
@@ -1105,9 +1107,10 @@ async def config(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
     
     try:
-        if not str(update.message.chat_id) in groupsConfig:
-            groupsConfig[update.message.chat_id] = fromJSON("defaultConfig.json")
-            toJSON("groupsConfig.json",groupsConfig)
+        gc = groupsConfig()
+        if not str(update.message.chat_id) in gc:
+            gc[update.message.chat_id] = fromJSON("defaultConfig.json")
+            toJSON("groupsConfig.json",gc)
         
         await context.bot.send_message(
             update.message.from_user.id,
@@ -1138,10 +1141,10 @@ async def config_skiptime(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Teoricamente qui siamo in chat privata per forza
     
     query = update.callback_query
-    
+    gc = groupsConfig()
     await context.bot.send_message(
         chat_id=query.message.chat_id,
-        text=_("Inviami quanti secondi vuoi impostare di attesa prima di saltare un turno per inattività. Valore attuale: {value}").format(value = groupsConfig[str(context.user_data['group_chat'].id)]['skiptime'] if str(context.user_data['group_chat'].id) in groupsConfig else "NONE?")
+        text=_("Inviami quanti secondi vuoi impostare di attesa prima di saltare un turno per inattività. Valore attuale: {value}").format(value = gc[str(context.user_data['group_chat'].id)]['skiptime'] if str(context.user_data['group_chat'].id) in gc else "NONE?")
     )
     
     await query.answer()
@@ -1177,14 +1180,15 @@ async def configSave_skiptime(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not txt.isnumeric():
         await update.effective_message.reply_text(_('Il messaggio deve essere solo un numero (esempio: "50") e rappresenterà il numero di secondi che aspetterò prima di skippare un turno. Riprova o annulla con /cancel.'))
         return 
+    gc = groupsConfig()
     
-    groupsConfig[str(context.user_data['group_chat'].id)]['skiptime'] = int(txt)
-    toJSON("groupsConfig.json",groupsConfig)
+    gc[str(context.user_data['group_chat'].id)]['skiptime'] = int(txt)
+    toJSON("groupsConfig.json",gc)
     
     context.user_data['messageToEdit'] = await update.effective_message.reply_text(
         _("Tempo di inattività aggiornato a {newValue} per il gruppo {group}.")
         .format(
-            newValue=groupsConfig[str(context.user_data['group_chat'].id)]['skiptime'],
+            newValue=groupsConfig()[str(context.user_data['group_chat'].id)]['skiptime'],
             group=context.user_data['group_chat'].title
         ),
         reply_markup=keyboard_go_back
@@ -1196,10 +1200,11 @@ async def configSave_skiptime(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def config_recapwords(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     
+    gc = groupsConfig()
     await context.bot.send_message(
         chat_id=query.message.chat_id,
         text=_("Inviami ora quante parole dovrò mostrare per il recap (0 nessuna, -1 tutta la storia). Valore attuale: {value}").format(
-            value=groupsConfig[str(context.user_data['group_chat'].id)]['wordHistory'] if str(context.user_data['group_chat'].id) in groupsConfig else "NONE?"
+            value=gc[str(context.user_data['group_chat'].id)]['wordHistory'] if str(context.user_data['group_chat'].id) in gc else "NONE?"
         )
     )
     
@@ -1214,13 +1219,14 @@ async def configSave_recapwords(update: Update, context: ContextTypes.DEFAULT_TY
         await update.effective_message.reply_text(_('Il messaggio deve essere solo un numero (esempio: "6") e rappresenterà il numero di parole che scriverò ogni turno (-1 tutta la storia, 0 nessun recap). Riprova o annulla con /cancel.'))
         return 
     
-    groupsConfig[str(context.user_data['group_chat'].id)]['wordHistory'] = int(txt)
-    toJSON("groupsConfig.json",groupsConfig)
+    gc = groupsConfig()
+    gc[str(context.user_data['group_chat'].id)]['wordHistory'] = int(txt)
+    toJSON("groupsConfig.json",gc)
     
     context.user_data['messageToEdit'] = await update.effective_message.reply_text(
         _("Parole di recap aggiornate a {newValue} per il gruppo {group}.")
         .format(
-            newValue=groupsConfig[str(context.user_data['group_chat'].id)]['wordHistory'],
+            newValue=groupsConfig()[str(context.user_data['group_chat'].id)]['wordHistory'],
             group=context.user_data['group_chat'].title
         ),
         reply_markup=keyboard_go_back
@@ -1247,13 +1253,14 @@ async def configSave_maxwords(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.effective_message.reply_text(_('Il messaggio deve essere solo un numero (esempio: "30") e rappresenterà il numero di parole massime per una storia (essenzialmente la durata di una partita). Riprova o annulla con /cancel.'))
         return
     
-    groupsConfig[str(context.user_data['group_chat'].id)]['maxWords'] = int(txt)
-    toJSON("groupsConfig.json",groupsConfig)
+    gc = groupsConfig()
+    gc[str(context.user_data['group_chat'].id)]['maxWords'] = int(txt)
+    toJSON("groupsConfig.json",gc)
     
     context.user_data['messageToEdit'] = await update.effective_message.reply_text(
         _("Parole massime aggiornate a {newValue} per il gruppo {group}.")
         .format(
-            newValue=groupsConfig[str(context.user_data['group_chat'].id)]['maxWords'],
+            newValue=groupsConfig()[str(context.user_data['group_chat'].id)]['maxWords'],
             group=context.user_data['group_chat'].title
         ),
         reply_markup=keyboard_go_back
@@ -1268,9 +1275,10 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def onJoin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for member in update.message.new_chat_members:
         if member.username == context.bot.username:
-            if not update.message.chat_id in groupsConfig:
-                groupsConfig[update.message.chat_id] = fromJSON("defaultConfig.json")
-                toJSON("groupsConfig.json",groupsConfig)
+            gc = groupsConfig()
+            if not update.message.chat_id in gc:
+                gc[update.message.chat_id] = fromJSON("defaultConfig.json")
+                toJSON("groupsConfig.json",gc)
             else:
                 await context.bot.send_message(update.message.chat_id, "Ciao! Questo gruppo aveva già una configurazione salvata in passato, utilizzerò quella.")
 
