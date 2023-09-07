@@ -625,6 +625,7 @@ async def test(context: ContextTypes.DEFAULT_TYPE):
         )
     )
     
+    partita.resetVotesSkip()
     partita.aChiTocca().hasWritten = True
     
     if partita.everyone_has_written():
@@ -796,7 +797,7 @@ async def quit_ows_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     partita = partite[f"{chat_id}"]
 
     # Se l'utente non partecipa alla partita non può quittare lol
-    if not idUtente in partita.partecipanti:
+    if not idUtente in partita.partecipanti.keys():
         await prova_messaggio(
             _('Non sei in partita!'),
             update=update,
@@ -839,14 +840,10 @@ async def quit_ows_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 nWords = partita.wordHistoryConfig,
                 user=partita.aChiTocca().nomeUtente,
                 words=partita.ottieniStoria(partita.wordHistoryConfig)
-            ),
-            update=update,
-            bot=context.bot
+            )
         )
         if partita.skipVotes > 0:
             partita.resetVotesSkip()
-
-
 
 async def skip_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global partite
@@ -1313,6 +1310,14 @@ async def vote_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
             bot=context.bot
         )
         return
+
+    if not idUtente in partita.partecipanti.keys():
+        await prova_messaggio(
+            _("{user}, non sei in partita.").format(user=nomeUtente),
+            update=update, 
+            bot=context.bot
+        )
+        return
         
     if partita.partecipanti[str(idUtente)].voteWord:
         await prova_messaggio(
@@ -1331,7 +1336,7 @@ async def vote_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 utente = nomeUtente,
                 votes = partita.voteWords,
                 votesNeeded = len(partita.partecipanti),
-                turn = partita.aChiTocca()
+                turn = partita.aChiTocca().nomeUtente
             ),
             update=update,
             bot=context.bot
