@@ -754,13 +754,16 @@ async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     partite.pop(f'{chat_id}', None)
 
-async def termina_partita(update: Update, context: ContextTypes.DEFAULT_TYPE, roba: Message, partita: Partita, chat_id: str | int):
+async def termina_partita(update: Update, context: ContextTypes.DEFAULT_TYPE, roba: Message, partita: Partita, chat_id: str | int, messaggio: str = None):
+    if messaggio is None:
+        messaggio = _("Termino la partita.")
+        
     # Se la storia non è vuota la stampi, altrimenti termini la partita e basta
     if (len(partita.storia) > 0):
-        await prova_messaggio(_("Termino la partita. Ecco la vostra storia:"),update=update,bot=context.bot)
+        await prova_messaggio(messaggio + " " + _("Ecco la vostra storia: ").lower(),update=update,bot=context.bot)
         await prova_messaggio(_("#storia\n\n{story}").format(story=capwords(partita.ottieniStoria(link=True), '. ').replace(' .', '.').replace(' ,', ',')),update=update,bot=context.bot)
     else:
-        await prova_messaggio(_("Termino la partita."),update=update,bot=context.bot)
+        await prova_messaggio(messaggio,update=update,bot=context.bot)
 
     # Azzero qualsiasi cosa possibile per cancellare la partita
     
@@ -812,16 +815,28 @@ async def quit_ows_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if idUtente == partita.aChiTocca().idUtente:
         isHisTurn = True
 
+    # Se il partecipante è l'ultimo
+    if len(partita.partecipanti) == 1:
+        await termina_partita(
+            update=update,
+            context=context,
+            roba=roba,
+            partita=partita,
+            chat_id=chat_id,
+            messaggio=_("Non è rimasto più nessuno, termino la partita.")
+        )
+        return
+
     # Se passi tutti i controlli togli l'utente dai partecipanti e ristampa la lista
     partita.partecipanti.pop(idUtente)
-    
+
     if partita.maxWordsConfig != 0 and len(partita.partecipanti) > partita.maxWordsConfig:
         partita.maxWordsEffective = len(partita.partecipanti)
         await roba.chat.send_message("Ho aggiornato il limite di parole per questa partita a {newMaxWords}.".format(newMaxWords = str(len(partita.partecipanti))))
     elif partita.maxWordsConfig != 0 and len(partita.partecipanti) == partita.maxWordsConfig:
         partita.maxWordsEffective = partita.maxWordsConfig
         await roba.chat.send_message("La partita può seguire il limite di parole standard impostato nei config ({newMaxWords}).".format(newMaxWords = str(len(partita.partecipanti))))
-    
+
     rimuovi_timer(
         roba.chat_id,
         idUtente,
