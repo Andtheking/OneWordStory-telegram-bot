@@ -178,14 +178,17 @@ class Partita:
         for partecipante in self.getAllPartecipants():
             partecipante.voteWord = False
     
-    def ottieniStoria(self, parole=-1):
+    def ottieniStoria(self, parole=-1, link=False):
         if parole < -1:
             raise Exception("No valori negativi")
-        elif parole == -1:
-            return " ".join([formattaMessaggio(k.text) for k in self.storia])
         elif parole == 0:
             return ""
-        return " ".join([formattaMessaggio(k.text) for k in self.storia[parole*-1:]])
+        # elif parole == -1:
+        #     return " ".join([formattaMessaggio(k.text) for k in self.storia])
+        qwndfiu = ''
+        for i in self.storia[(parole*-1) if parole != -1 else 0:]:
+            qwndfiu += ((f'<a href="{i.link}">') if link is True else "") + formattaMessaggio(i.text) + ("</a>" if link is True else "") + (" ")
+        return qwndfiu.strip()
     
     def everyone_has_written(self):
         for partecipante in self.getAllPartecipants():
@@ -681,7 +684,7 @@ async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Se la storia non è vuota la stampi, altrimenti termini la partita e basta
             if (len(partita.storia) > 0):
                 await context.bot.send_message(chat_id=chat_id,text=_("Partita terminata forzatamente da un admin del bot. Ecco la vostra storia:"))
-                await context.bot.send_message(chat_id=chat_id,text=_("#storia\n\n{story}").format(story=capwords(partita.ottieniStoria(), '. ').replace(' .', '.').replace(' ,', ',')))
+                await context.bot.send_message(chat_id=chat_id,text=_("#storia\n\n{story}").format(story=capwords(partita.ottieniStoria(link=True), '. ').replace(' .', '.').replace(' ,', ',')))
             else:
                 await context.bot.send_message(chat_id=chat_id,text=_("Partita terminata forzatamente da un admin del bot."))
                     
@@ -736,7 +739,7 @@ async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Se la storia non è vuota la stampi, altrimenti termini la partita e basta
     if (len(partita.storia) > 0):
         await prova_messaggio(_("Termino la partita. Ecco la vostra storia:"),update=update,bot=context.bot)
-        await prova_messaggio(_("#storia\n\n{story}").format(story=capwords(partita.ottieniStoria(), '. ').replace(' .', '.').replace(' ,', ',')),update=update,bot=context.bot)
+        await prova_messaggio(_("#storia\n\n{story}").format(story=capwords(partita.ottieniStoria(link=True), '. ').replace(' .', '.').replace(' ,', ',')),update=update,bot=context.bot)
     else:
         await prova_messaggio(_("Termino la partita."),update=update,bot=context.bot)
 
@@ -755,7 +758,7 @@ async def termina_partita(update: Update, context: ContextTypes.DEFAULT_TYPE, ro
     # Se la storia non è vuota la stampi, altrimenti termini la partita e basta
     if (len(partita.storia) > 0):
         await prova_messaggio(_("Termino la partita. Ecco la vostra storia:"),update=update,bot=context.bot)
-        await prova_messaggio(_("#storia\n\n{story}").format(story=capwords(partita.ottieniStoria(), '. ').replace(' .', '.').replace(' ,', ',')),update=update,bot=context.bot)
+        await prova_messaggio(_("#storia\n\n{story}").format(story=capwords(partita.ottieniStoria(link=True), '. ').replace(' .', '.').replace(' ,', ',')),update=update,bot=context.bot)
     else:
         await prova_messaggio(_("Termino la partita."),update=update,bot=context.bot)
 
