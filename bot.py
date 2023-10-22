@@ -239,8 +239,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):  # /start
     
     if "config" in roba.text:
         await prova_messaggio(
-            _("Benvenuto nel bot \"One Word Story\". Per configurare riutilizza il comando /cnfg_ows nel gruppo.")
+            _("Benvenuto nel bot \"One Word Story\". Per configurare riutilizza il comando /cnfg_ows nel gruppo."),
+            update=update,
+            bot=context
         )
+        return
     
     await prova_messaggio(
         _('Benvenuto nel bot "One Word Story". Per giocare aggiungimi in un gruppo e fai /new_ows_game'),
@@ -309,7 +312,7 @@ async def crea_partita(update: Update, context: ContextTypes.DEFAULT_TYPE):
         partita = partite[f'{chat_id}']
         await prova_messaggio(
             _('{link_1}Partita già creata{link_2}. Entra con /join_ows_game').format(
-                link_1=f'<a href="{partita.MessaggioListaPartecipanti.link[:partita.MessaggioListaPartecipanti.link.rfind("""?""")]}">' if partita.MessaggioListaPartecipanti is not None else "",
+                link_1=f'<a href="{partita.MessaggioListaPartecipanti.link[:partita.MessaggioListaPartecipanti.link.rfind("""?""")]}">' if (partita.MessaggioListaPartecipanti is not None and partita.MessaggioListaPartecipanti.link is not None) else "",
                 link_2='</a>' if partita.MessaggioListaPartecipanti is not None else ""
             ),
             update = update,
