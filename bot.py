@@ -931,15 +931,18 @@ async def skip_turn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     partita.partecipanti[idUtente].voteSkip = True
     
-    if partita.MessaggioVoteSkip is not None:
-        await partita.MessaggioVoteSkip.edit_text(
-            text = (Partita.SKIP_TMPL + ' {voteStatus}/{totalPlayersMinusOne}').format(
-                user = utente,
-                turn = partita.aChiTocca().nomeUtente, 
-                voteStatus = partita.skipVotes,
-                totalPlayersMinusOne = partita.getNumberOfPlayers() - 1
+    if partita.MessaggioVoteSkip is not None and partita.skipVotes > 1:
+        try:
+            await partita.MessaggioVoteSkip.edit_text(
+                text = (Partita.SKIP_TMPL + ' {voteStatus}/{totalPlayersMinusOne}').format(
+                    user = utente,
+                    turn = partita.aChiTocca().nomeUtente, 
+                    voteStatus = partita.skipVotes,
+                    totalPlayersMinusOne = partita.getNumberOfPlayers() - 1
+                )
             )
-        )
+        except:
+            pass
     
     await prova_messaggio(
         text = (_("{user} ha votato per lo skip.") + ' {voteStatus}/{totalPlayersMinusOne}').format(
@@ -1411,7 +1414,9 @@ def main():
     # Crea l'Updater e passagli il token del tuo bot
     # Accertati di impostare use_context=True per usare i nuovi context-based callbacks (non so cosa siano)
     # Dalla versione 12 non sarà più necessario
-    application = Application.builder().token(TOKEN).persistence(PicklePersistence(filepath="salvataggio_bot",update_interval=1)).build() # Se si vuole usare la PicklePersistance bisogna aggiungere dopo .token(TOKEN) anche .persistance(OGGETTO_PP)
+    application = Application.builder() \
+        .token(TOKEN).read_timeout(30).write_timeout(30) \
+        .persistence(PicklePersistence(filepath="salvataggio_bot",update_interval=1)).build() # Se si vuole usare la PicklePersistance bisogna aggiungere dopo .token(TOKEN) anche .persistance(OGGETTO_PP)
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("new_ows_game", crea_partita))
