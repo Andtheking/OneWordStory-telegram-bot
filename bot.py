@@ -216,14 +216,18 @@ class Partita:
             user.hasWritten = False
         
 
-def formattaMessaggio(text):
-    return text[1:]
+def formattaMessaggio(text: str):
+    return text[1:].strip()
 
 #        group_id: Partita
 partite: dict[str, Partita] = {}
 
 # #       group_id: storia
 # storie: Dict[str, str] = {}
+
+# TODO Fare coando /close_ows_lobby in modo da non permettere ad altri di entrare nella partita.
+# TODO Fare in modo che tutti i partecipanti alla partita possano startarla.
+# TODO Cambiare l'host della partita quando questo quitta.
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):  # /start
     
